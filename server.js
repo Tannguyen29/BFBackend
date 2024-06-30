@@ -50,7 +50,7 @@ app.post('/signin', async (req, res) => {
       return res.status(400).send('Invalid password');
     }
     const token = jwt.sign({ userId: user._id }, 'secret_key');
-    res.send({ token });
+    res.send({ token, name: user.name || email }); // Sử dụng email nếu name không tồn tại
   } catch (err) {
     res.status(500).send('Error signing in');
   }
