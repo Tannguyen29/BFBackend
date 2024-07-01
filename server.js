@@ -14,6 +14,8 @@ const User = require('./models/user');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const otpEmailTemplate = require('./otpEmailTemplate.jsx');
+
 const mongoUri = process.env.MONGO_URI || 'your-mongodb-uri-here';
 
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
@@ -37,9 +39,8 @@ app.post('/signup', async (req, res) => {
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Your OTP Code',
-      text: `Your OTP code is ${otp}`,
-      html: `<p>Your OTP code is <b>${otp}</b></p>`,
+      subject: 'Sign In OTP code',
+      html: otpEmailTemplate(otp)
     };
 
     transporter.sendMail(mailOptions, (error, info) => {
@@ -92,9 +93,8 @@ app.post('/resend-otp', async (req, res) => {
     const mailOptions = {
       from: process.env.EMAIL_USER,
       to: email,
-      subject: 'Your New OTP Code',
-      text: `Your new OTP code is ${newOtp}`,
-      html: `<p>Your new OTP code is <b>${newOtp}</b></p>`,
+      subject: 'Your New OTP Code - Bro Fitness',
+      html: otpEmailTemplate(newOtp, user.name)
     };
 
     transporter.sendMail(mailOptions, (error, info) => {
