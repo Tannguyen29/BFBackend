@@ -26,7 +26,29 @@ mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
 app.use(cors());
 app.use(bodyParser.json());
 
-// Routes
+// AUTHEN 
+app.post('/signin', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).send('User not found');
+    }
+    if (!user.verified) {
+      return res.status(400).send('User not verified');
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(400).send('Invalid password');
+    }
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'secret_key');
+    res.send({ token, name: user.name || email });
+  } catch (err) {
+    res.status(500).send('Error signing in');
+  }
+});
+
+
 app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   try {
@@ -56,6 +78,72 @@ app.post('/signup', async (req, res) => {
   }
 });
 
+
+app.post('/resetpassword', async (req,res) =>{
+  const {email, newPassword, confirmPassword } = req.body;
+  if (newPassword !== confirmPassword){
+    return res.status(400).send('Password do not match');
+  }
+  try {
+    const user = await User.findOne({email});
+    if(!user){
+      return res.status(400).send('User not found');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    await user.save();
+    res.status(200).send('Password reset successfully');
+
+  } catch(err){
+    console.error(err);
+    res.status(500).send('Error resetting password');
+  }
+});
+
+
+
+
+
+
+//OTP CONTROLLER
+app.post('/send-otp', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const otp = crypto.randomInt(1000, 9999).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000;  // OTP hết hạn sau 10 phút
+
+    let user = await User.findOne({ email });
+    if (!user) {
+      user = new User({ email, otp, otpExpires });
+    } else {
+      user.otp = otp;
+      user.otpExpires = otpExpires;
+    }
+    await user.save();
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your OTP Code',
+      html: otpEmailTemplate(otp, user.name)
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.log(error);
+        return res.status(500).send('Error sending OTP email');
+      }
+      console.log('OTP email sent: %s', info.messageId);
+      res.status(200).send('OTP sent successfully');
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error sending OTP');
+  }
+});
+
+
 app.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
   try {
@@ -75,6 +163,7 @@ app.post('/verify-otp', async (req, res) => {
     res.status(500).send('Error verifying OTP');
   }
 });
+
 
 app.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
@@ -112,30 +201,7 @@ app.post('/resend-otp', async (req, res) => {
   }
 });
 
-app.post('/signin', async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).send('User not found');
-    }
-    if (!user.verified) {
-      return res.status(400).send('User not verified');
-    }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(400).send('Invalid password');
-    }
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'secret_key');
-    res.send({ token, name: user.name || email });
-  } catch (err) {
-    res.status(500).send('Error signing in');
-  }
-});
 
-app.get('/', (req, res) => {
-  res.send('Hello from the backend!');
-});
 
 // Start server
 app.listen(PORT, () => {
