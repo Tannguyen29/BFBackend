@@ -5,21 +5,20 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
+const crypto = require('crypto');
+
+const transporter = require('./config/nodemailer');
+
+const User = require('./models/user');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-const mongoUri = 'mongodb+srv://tannvgdh210106:brofitness23@brofitness.mbqyiko.mongodb.net/brofitness';
+const mongoUri = process.env.MONGO_URI || 'your-mongodb-uri-here';
 
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
-
-const User = mongoose.model('User', new mongoose.Schema({
-  name: String,
-  email: { type: String, unique: true },
-  password: String
-}));
 
 // Middleware
 app.use(cors());
@@ -30,11 +29,86 @@ app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ name, email, password: hashedPassword });
+    const otp = crypto.randomInt(1000, 9999).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000;  
+    const user = new User({ name, email, password: hashedPassword, otp, otpExpires });
     await user.save();
-    res.status(201).send('User registered successfully');
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your OTP Code',
+      text: `Your OTP code is ${otp}`,
+      html: `<p>Your OTP code is <b>${otp}</b></p>`,
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        return console.log(error);
+      }
+      console.log('OTP email sent: %s', info.messageId);
+    });
+
+    res.status(201).send('User registered successfully. Please check your email for the OTP.');
   } catch (err) {
     res.status(400).send('Error registering user');
+  }
+});
+
+app.post('/verify-otp', async (req, res) => {
+  const { email, otp } = req.body;
+  try {
+    const user = await User.findOne({ email, otp });
+    if (!user) {
+      return res.status(400).send('Invalid OTP');
+    }
+    if (user.otpExpires < Date.now()) {
+      return res.status(400).send('OTP expired');
+    }
+    user.verified = true;
+    user.otp = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+    res.status(200).send('OTP verified successfully');
+  } catch (err) {
+    res.status(500).send('Error verifying OTP');
+  }
+});
+
+app.post('/resend-otp', async (req, res) => {
+  const { email } = req.body;
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).send('User not found');
+    }
+    const newOtp = crypto.randomInt(1000, 9999).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000;  
+
+    user.otp = newOtp;
+    user.otpExpires = otpExpires;
+    await user.save();
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: 'Your New OTP Code',
+      text: `Your new OTP code is ${newOtp}`,
+      html: `<p>Your new OTP code is <b>${newOtp}</b></p>`,
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.log(error);
+        return res.status(500).send('Error sending OTP email');
+      }
+      console.log('New OTP email sent: %s', info.messageId);
+      res.status(200).send('New OTP sent successfully');
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error resending OTP');
   }
 });
 
@@ -45,12 +119,15 @@ app.post('/signin', async (req, res) => {
     if (!user) {
       return res.status(400).send('User not found');
     }
+    if (!user.verified) {
+      return res.status(400).send('User not verified');
+    }
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return res.status(400).send('Invalid password');
     }
-    const token = jwt.sign({ userId: user._id }, 'secret_key');
-    res.send({ token, name: user.name || email }); // Sử dụng email nếu name không tồn tại
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'secret_key');
+    res.send({ token, name: user.name || email });
   } catch (err) {
     res.status(500).send('Error signing in');
   }
