@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const transporter = require('./config/nodemailer');
 
 const User = require('./models/user');
+const auth = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -42,7 +43,7 @@ app.post('/signin', async (req, res) => {
       return res.status(400).send('Invalid password');
     }
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET || 'secret_key');
-    res.send({ token, name: user.name || email });
+    res.send({ token, name: user.name || email, personalInfoCompleted: user.personalInfoCompleted });
   } catch (err) {
     res.status(500).send('Error signing in');
   }
@@ -201,7 +202,48 @@ app.post('/resend-otp', async (req, res) => {
   }
 });
 
+app.post('/personal-information-setup', auth, async (req, res) => {
+  const { userId } = req.user;
+  const {
+    gender,
+    age,
+    height,
+    weight,
+    physicalActivityLevel,
+    fitnessGoal,
+    healthIssues,
+    equipment,
+    dailyExerciseTime,
+    bodyParts
+  } = req.body;
 
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+
+    user.personalInfo = {
+      gender,
+      age,
+      height,
+      weight,
+      physicalActivityLevel,
+      fitnessGoal,
+      healthIssues,
+      equipment,
+      dailyExerciseTime,
+      bodyParts
+    };
+    user.personalInfoCompleted = true;
+    await user.save();
+
+    res.status(200).send('Personal information saved successfully');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error saving personal information');
+  }
+});
 
 // Start server
 app.listen(PORT, () => {
