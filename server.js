@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const crypto = require('crypto');
+const Exercise = require('./models/exercise');
 
 const transporter = require('./config/nodemailer');
 
@@ -26,6 +27,11 @@ mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
+
+app.use(cors({
+  origin: 'http://localhost:3000',
+  optionsSuccessStatus: 200
+}));
 
 // AUTHEN 
 app.post('/signin', async (req, res) => {
@@ -213,7 +219,7 @@ app.post('/personal-information-setup', auth, async (req, res) => {
     fitnessGoal,
     healthIssues,
     equipment,
-    dailyExerciseTime,
+    experienceLevel,
     bodyParts
   } = req.body;
 
@@ -232,7 +238,7 @@ app.post('/personal-information-setup', auth, async (req, res) => {
       fitnessGoal,
       healthIssues,
       equipment,
-      dailyExerciseTime,
+      experienceLevel,
       bodyParts
     };
     user.personalInfoCompleted = true;
@@ -242,6 +248,76 @@ app.post('/personal-information-setup', auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Error saving personal information');
+  }
+});
+
+// Create a new exercise
+app.post('/exercises',  async (req, res) => {
+  try {
+    const exercise = new Exercise(req.body);
+    await exercise.save();
+    res.status(201).send(exercise);
+  } catch (error) {
+    res.status(400).send(error);
+  }
+});
+
+// Get all exercises
+app.get('/exercises',  async (req, res) => {
+  try {
+    const exercises = await Exercise.find({});
+    res.send(exercises);
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+// Get a specific exercise
+app.get('/exercises/:id',  async (req, res) => {
+  try {
+    const exercise = await Exercise.findById(req.params.id);
+    if (!exercise) {
+      return res.status(404).send();
+    }
+    res.send(exercise);
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+// Update an exercise
+app.patch('/exercises/:id', async (req, res) => {
+  try {
+    const exercise = await Exercise.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!exercise) {
+      return res.status(404).send();
+    }
+    res.send(exercise);
+  } catch (error) {
+    res.status(400).send(error);
+  }
+});
+
+// Delete an exercise
+app.delete('/exercises/:id', async (req, res) => {
+  try {
+    const exercise = await Exercise.findByIdAndDelete(req.params.id);
+    if (!exercise) {
+      return res.status(404).send();
+    }
+    res.send(exercise);
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+//getUser
+app.get('/users', async (req, res) => {
+  try {
+    const users = await User.find({}).select('-password -otp -otpExpires');
+    res.send(users);
+  } catch (error) {
+    res.status(500).send();
   }
 });
 
