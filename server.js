@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const crypto = require('crypto');
 const Exercise = require('./models/exercise');
+const Plan = require('./models/plan');
 
 const transporter = require('./config/nodemailer');
 
@@ -55,7 +56,6 @@ app.post('/signin', async (req, res) => {
   }
 });
 
-
 app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   try {
@@ -85,7 +85,6 @@ app.post('/signup', async (req, res) => {
   }
 });
 
-
 app.post('/resetpassword', async (req,res) =>{
   const {email, newPassword, confirmPassword } = req.body;
   if (newPassword !== confirmPassword){
@@ -108,12 +107,7 @@ app.post('/resetpassword', async (req,res) =>{
   }
 });
 
-
-
-
-
-
-//OTP CONTROLLER
+// OTP CONTROLLER
 app.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   try {
@@ -150,7 +144,6 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-
 app.post('/verify-otp', async (req, res) => {
   const { email, otp } = req.body;
   try {
@@ -170,7 +163,6 @@ app.post('/verify-otp', async (req, res) => {
     res.status(500).send('Error verifying OTP');
   }
 });
-
 
 app.post('/resend-otp', async (req, res) => {
   const { email } = req.body;
@@ -311,11 +303,65 @@ app.delete('/exercises/:id', async (req, res) => {
   }
 });
 
-//getUser
+// Get all users (for debugging)
 app.get('/users', async (req, res) => {
   try {
     const users = await User.find({}).select('-password -otp -otpExpires');
     res.send(users);
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+// Create a new plan
+app.post('/plans', async (req, res) => {
+  try {
+    const plan = new Plan(req.body);
+    const validationError = plan.validateSync();
+    if (validationError) {
+      console.error('Validation error creating plan:', validationError);
+      return res.status(400).json({ error: validationError.message });
+    }
+    await plan.save();
+    res.status(201).send(plan);
+  } catch (error) {
+    console.error('Error creating plan:', error);
+    res.status(400).json({ error: error.message });
+  }
+});
+
+
+// Get all plans
+app.get('/plans', async (req, res) => {
+  try {
+    const plans = await Plan.find({});
+    res.send(plans);
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+// Update a plan
+app.patch('/plans/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    if (!plan) {
+      return res.status(404).send();
+    }
+    res.send(plan);
+  } catch (error) {
+    res.status(400).send(error);
+  }
+});
+
+// Delete a plan
+app.delete('/plans/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findByIdAndDelete(req.params.id);
+    if (!plan) {
+      return res.status(404).send();
+    }
+    res.send(plan);
   } catch (error) {
     res.status(500).send();
   }
