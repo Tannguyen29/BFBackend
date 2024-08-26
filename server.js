@@ -256,6 +256,8 @@ app.post('/personal-information-setup', auth, async (req, res) => {
   }
 });
 
+////////EXERCISES/////////////
+
 // Create a new exercise
 app.post('/exercises',  async (req, res) => {
   try {
@@ -338,6 +340,8 @@ app.get('/users', async (req, res) => {
     res.status(500).send();
   }
 });
+
+////////PLAN////////////
 
 // Create a new plan
 app.post('/plans', upload.single('backgroundImage'), async (req, res) => {
@@ -429,6 +433,7 @@ app.get('/plans/:id', async (req, res) => {
   }
 });
 
+///////BANNER//////////
 // Create a new banner
 app.post('/banners', upload.single('image'), async (req, res) => {
   try {
