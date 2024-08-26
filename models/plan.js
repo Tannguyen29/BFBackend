@@ -2,7 +2,8 @@ const mongoose = require('mongoose');
 
 const ExerciseSchema = new mongoose.Schema({
   name: String,
-  duration: String,
+  duration: Number, 
+  sets: { type: Number, default: 1 }, 
   reps: Number,
   type: String,
 });
@@ -12,7 +13,7 @@ const DaySchema = new mongoose.Schema({
   exercises: [ExerciseSchema],
   level: String,
   totalTime: String,
-  focusArea: String,
+  focusArea: [String],
 });
 
 const WeekSchema = new mongoose.Schema({
@@ -26,6 +27,7 @@ const PlanSchema = new mongoose.Schema({
   description: String,
   backgroundImage: String,
   isPro: Boolean,
+  accentColor: { type: String, default: '#000000' },
   duration: {
     weeks: { type: Number, required: true },
     daysPerWeek: { type: Number, required: true },

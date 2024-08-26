@@ -17,6 +17,17 @@ const auth = require('./middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const cloudinary = require('cloudinary').v2;
+
+cloudinary.config({
+  cloud_name: 'dksdokc9v',
+  api_key: '713218255771275',
+  api_secret: 'C2e6W4cG50AAv05A0Soc0P6K0Yk'
+});
+
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+
 const otpEmailTemplate = require('./otpEmailTemplate.jsx');
 
 const mongoUri = process.env.MONGO_URI || 'your-mongodb-uri-here';
@@ -27,7 +38,8 @@ mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({limit: '50mb'}));
+app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
 
 app.use(cors({
   origin: 'http://localhost:3000',
@@ -303,6 +315,19 @@ app.delete('/exercises/:id', async (req, res) => {
   }
 });
 
+app.get('/exercise-details/:name', async (req, res) => {
+  try {
+    const exerciseName = req.params.name.toLowerCase();
+    const exercise = await Exercise.findOne({ name: exerciseName });
+    if (!exercise) {
+      return res.status(404).send('Exercise not found');
+    }
+    res.json(exercise);
+  } catch (error) {
+    res.status(500).send('Server error');
+  }
+});
+
 // Get all users (for debugging)
 app.get('/users', async (req, res) => {
   try {
@@ -314,9 +339,19 @@ app.get('/users', async (req, res) => {
 });
 
 // Create a new plan
-app.post('/plans', async (req, res) => {
+app.post('/plans', upload.single('backgroundImage'), async (req, res) => {
   try {
-    const plan = new Plan(req.body);
+    const planData = JSON.parse(req.body.planData);
+
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'PlanImage'
+      });
+
+      planData.backgroundImage = result.secure_url;
+    }
+
+    const plan = new Plan(planData);
     const validationError = plan.validateSync();
     if (validationError) {
       console.error('Validation error creating plan:', validationError);
@@ -342,14 +377,28 @@ app.get('/plans', async (req, res) => {
 });
 
 // Update a plan
-app.patch('/plans/:id', async (req, res) => {
+app.patch('/plans/:id', upload.single('backgroundImage'), async (req, res) => {
   try {
-    const plan = await Plan.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    const planId = req.params.id;
+    const updateData = JSON.parse(req.body.planData);
+
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'PlanImage'
+      });
+
+      updateData.backgroundImage = result.secure_url;
+    }
+
+    const plan = await Plan.findByIdAndUpdate(planId, updateData, { new: true, runValidators: true });
+    
     if (!plan) {
       return res.status(404).send();
     }
+    
     res.send(plan);
   } catch (error) {
+    console.error('Error updating plan:', error);
     res.status(400).send(error);
   }
 });
@@ -364,6 +413,18 @@ app.delete('/plans/:id', async (req, res) => {
     res.send(plan);
   } catch (error) {
     res.status(500).send();
+  }
+});
+
+app.get('/plans/:id', async (req, res) => {
+  try {
+    const plan = await Plan.findById(req.params.id);
+    if (!plan) {
+      return res.status(404).send('Plan not found');
+    }
+    res.send(plan);
+  } catch (error) {
+    res.status(500).send(error);
   }
 });
 
