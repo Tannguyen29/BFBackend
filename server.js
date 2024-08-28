@@ -287,7 +287,7 @@ app.post('/exercises', upload.single('gifFile'), async (req, res) => {
 // Get all exercises
 app.get('/exercises', async (req, res) => {
   try {
-    const { search, page = 1, limit = 10 } = req.query;
+    const { search, page = 1, limit = 10, sort = 'name_asc' } = req.query;
     const skip = (page - 1) * limit;
 
     let query = {};
@@ -302,7 +302,23 @@ app.get('/exercises', async (req, res) => {
       };
     }
 
+    let sortOption = {};
+    switch (sort) {
+      case 'name_asc':
+        sortOption = { name: 1 };
+        break;
+      case 'id_asc':
+        sortOption = { _id: 1 };
+        break;
+      case 'id_desc':
+        sortOption = { _id: -1 };
+        break;
+      default:
+        sortOption = { name: 1 };
+    }
+
     const exercises = await Exercise.find(query)
+      .sort(sortOption)
       .skip(skip)
       .limit(Number(limit));
 
