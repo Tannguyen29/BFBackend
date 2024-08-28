@@ -259,23 +259,64 @@ app.post('/personal-information-setup', auth, async (req, res) => {
 ////////EXERCISES/////////////
 
 // Create a new exercise
-app.post('/exercises',  async (req, res) => {
+app.post('/exercises', upload.single('gifFile'), async (req, res) => {
   try {
-    const exercise = new Exercise(req.body);
+    let gifUrl = req.body.gifUrl;
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: ''
+      });
+      gifUrl = result.secure_url;
+    }
+
+    const exerciseData = {
+      ...req.body,
+      gifUrl,
+      secondaryMuscles: JSON.parse(req.body.secondaryMuscles || '[]')
+    };
+
+    const exercise = new Exercise(exerciseData);
     await exercise.save();
     res.status(201).send(exercise);
   } catch (error) {
+    console.error('Error creating exercise:', error);
     res.status(400).send(error);
   }
 });
 
 // Get all exercises
-app.get('/exercises',  async (req, res) => {
+app.get('/exercises', async (req, res) => {
   try {
-    const exercises = await Exercise.find({});
-    res.send(exercises);
+    const { search, page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    let query = {};
+    if (search) {
+      query = {
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { bodyPart: { $regex: search, $options: 'i' } },
+          { equipment: { $regex: search, $options: 'i' } },
+          { target: { $regex: search, $options: 'i' } }
+        ]
+      };
+    }
+
+    const exercises = await Exercise.find(query)
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Exercise.countDocuments(query);
+
+    res.json({
+      exercises,
+      total,
+      currentPage: Number(page),
+      totalPages: Math.ceil(total / limit)
+    });
   } catch (error) {
-    res.status(500).send();
+    console.error('Error fetching exercises:', error);
+    res.status(500).send('Server error');
   }
 });
 
@@ -293,14 +334,28 @@ app.get('/exercises/:id',  async (req, res) => {
 });
 
 // Update an exercise
-app.patch('/exercises/:id', async (req, res) => {
+app.patch('/exercises/:id', upload.single('gifFile'), async (req, res) => {
   try {
-    const exercise = await Exercise.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+    let updateData = req.body;
+    
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: ''
+      });
+      updateData.gifUrl = result.secure_url;
+    }
+
+    if (updateData.secondaryMuscles) {
+      updateData.secondaryMuscles = JSON.parse(updateData.secondaryMuscles);
+    }
+
+    const exercise = await Exercise.findByIdAndUpdate(req.params.id, updateData, { new: true, runValidators: true });
     if (!exercise) {
       return res.status(404).send();
     }
     res.send(exercise);
   } catch (error) {
+    console.error('Error updating exercise:', error);
     res.status(400).send(error);
   }
 });
