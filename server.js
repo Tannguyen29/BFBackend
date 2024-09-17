@@ -1,10 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
 const crypto = require('crypto');
 const Exercise = require('./models/exercise');
 const Plan = require('./models/plan');
@@ -21,9 +21,9 @@ const PORT = process.env.PORT || 5000;
 const cloudinary = require('cloudinary').v2;
 
 cloudinary.config({
-  cloud_name: 'dksdokc9v',
-  api_key: '713218255771275',
-  api_secret: 'C2e6W4cG50AAv05A0Soc0P6K0Yk'
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
 const multer = require('multer');
@@ -253,6 +253,80 @@ app.post('/personal-information-setup', auth, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Error saving personal information');
+  }
+});
+
+app.get('/user-info', auth, async (req, res) => {
+  const { userId } = req.user;
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+    res.json({
+      name: user.name,
+      personalInfo: user.personalInfo,
+      personalInfoCompleted: user.personalInfoCompleted,
+      avatarUrl: user.avatarUrl
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error fetching user information');
+  }
+});
+
+app.put('/user-info', auth, async (req, res) => {
+  const { userId } = req.user;
+  const { name, gender, weight, height } = req.body;
+
+  try {
+    const user = await User.findByIdAndUpdate(userId, {
+      name,
+      'personalInfo.gender': gender,
+      'personalInfo.weight': weight,
+      'personalInfo.height': height
+    }, { new: true });
+
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+
+    res.json({
+      name: user.name,
+      personalInfo: user.personalInfo
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error updating user information');
+  }
+});
+
+// Upload avatar
+app.post('/upload-avatar', auth, upload.single('avatar'), async (req, res) => {
+  const { userId } = req.user;
+
+  if (!req.file) {
+    return res.status(400).send('No file uploaded');
+  }
+
+  try {
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'avatars',
+      public_id: `user_${userId}_avatar`
+    });
+
+    const user = await User.findByIdAndUpdate(userId, {
+      avatarUrl: result.secure_url
+    }, { new: true });
+
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+
+    res.json({ avatarUrl: result.secure_url });
+  } catch (err) {
+    console.error('Error uploading avatar:', err);
+    res.status(500).send('Error uploading avatar');
   }
 });
 

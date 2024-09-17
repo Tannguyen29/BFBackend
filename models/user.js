@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
   otp: String,
   otpExpires: Date,
   verified: { type: Boolean, default: false },
+  avatarUrl: { type: String, default: '' },
   personalInfo: {
     gender: String,
     age: Number,
