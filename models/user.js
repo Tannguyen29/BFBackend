@@ -15,7 +15,6 @@ const userSchema = new mongoose.Schema({
     weight: Number,
     physicalActivityLevel: String,
     fitnessGoal: String,
-    healthIssues: [String],
     equipment: String,
     experienceLevel: String,
     bodyParts: [String]

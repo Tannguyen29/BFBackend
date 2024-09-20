@@ -21,6 +21,13 @@ const WeekSchema = new mongoose.Schema({
   days: [DaySchema],
 });
 
+const TargetAudienceSchema = new mongoose.Schema({
+  experienceLevels: [{ type: String, enum: ['beginner', 'intermediate', 'advanced'] }],
+  fitnessGoals: [{ type: String, enum: ['loseWeight', 'buildMuscle', 'keepFit'] }],
+  equipmentNeeded: [{ type: String, enum: ['body weight', 'dumbbell', 'barbell'] }],
+  activityLevels: [{ type: String, enum: ['sedentary', 'moderate', 'active'] }],
+});
+
 const PlanSchema = new mongoose.Schema({
   title: { type: String, required: true },
   subtitle: String,
@@ -28,6 +35,7 @@ const PlanSchema = new mongoose.Schema({
   backgroundImage: String,
   isPro: Boolean,
   accentColor: { type: String, default: '#000000' },
+  targetAudience: TargetAudienceSchema,
   duration: {
     weeks: { type: Number, required: true },
     daysPerWeek: { type: Number, required: true },

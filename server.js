@@ -222,7 +222,6 @@ app.post('/personal-information-setup', auth, async (req, res) => {
     weight,
     physicalActivityLevel,
     fitnessGoal,
-    healthIssues,
     equipment,
     experienceLevel,
     bodyParts
@@ -241,7 +240,6 @@ app.post('/personal-information-setup', auth, async (req, res) => {
       weight,
       physicalActivityLevel,
       fitnessGoal,
-      healthIssues,
       equipment,
       experienceLevel,
       bodyParts
@@ -359,54 +357,12 @@ app.post('/exercises', upload.single('gifFile'), async (req, res) => {
 });
 
 // Get all exercises
-app.get('/exercises', async (req, res) => {
+app.get('/exercises',  async (req, res) => {
   try {
-    const { search, page = 1, limit = 10, sort = 'name_asc' } = req.query;
-    const skip = (page - 1) * limit;
-
-    let query = {};
-    if (search) {
-      query = {
-        $or: [
-          { name: { $regex: search, $options: 'i' } },
-          { bodyPart: { $regex: search, $options: 'i' } },
-          { equipment: { $regex: search, $options: 'i' } },
-          { target: { $regex: search, $options: 'i' } }
-        ]
-      };
-    }
-
-    let sortOption = {};
-    switch (sort) {
-      case 'name_asc':
-        sortOption = { name: 1 };
-        break;
-      case 'id_asc':
-        sortOption = { _id: 1 };
-        break;
-      case 'id_desc':
-        sortOption = { _id: -1 };
-        break;
-      default:
-        sortOption = { name: 1 };
-    }
-
-    const exercises = await Exercise.find(query)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(Number(limit));
-
-    const total = await Exercise.countDocuments(query);
-
-    res.json({
-      exercises,
-      total,
-      currentPage: Number(page),
-      totalPages: Math.ceil(total / limit)
-    });
+    const exercises = await Exercise.find({});
+    res.send(exercises);
   } catch (error) {
-    console.error('Error fetching exercises:', error);
-    res.status(500).send('Server error');
+    res.status(500).send();
   }
 });
 
@@ -501,7 +457,12 @@ app.post('/plans', upload.single('backgroundImage'), async (req, res) => {
       planData.backgroundImage = result.secure_url;
     }
 
-    const plan = new Plan(planData);
+    // Include targetAudience in the new plan
+    const plan = new Plan({
+      ...planData,
+      targetAudience: planData.targetAudience
+    });
+
     const validationError = plan.validateSync();
     if (validationError) {
       console.error('Validation error creating plan:', validationError);
@@ -512,17 +473,6 @@ app.post('/plans', upload.single('backgroundImage'), async (req, res) => {
   } catch (error) {
     console.error('Error creating plan:', error);
     res.status(400).json({ error: error.message });
-  }
-});
-
-
-// Get all plans
-app.get('/plans', async (req, res) => {
-  try {
-    const plans = await Plan.find({});
-    res.send(plans);
-  } catch (error) {
-    res.status(500).send();
   }
 });
 
@@ -540,7 +490,11 @@ app.patch('/plans/:id', upload.single('backgroundImage'), async (req, res) => {
       updateData.backgroundImage = result.secure_url;
     }
 
-    const plan = await Plan.findByIdAndUpdate(planId, updateData, { new: true, runValidators: true });
+    // Include targetAudience in the update data
+    const plan = await Plan.findByIdAndUpdate(planId, {
+      ...updateData,
+      targetAudience: updateData.targetAudience
+    }, { new: true, runValidators: true });
     
     if (!plan) {
       return res.status(404).send();
@@ -550,6 +504,17 @@ app.patch('/plans/:id', upload.single('backgroundImage'), async (req, res) => {
   } catch (error) {
     console.error('Error updating plan:', error);
     res.status(400).send(error);
+  }
+});
+
+
+// Get all plans
+app.get('/plans', async (req, res) => {
+  try {
+    const plans = await Plan.find({});
+    res.send(plans);
+  } catch (error) {
+    res.status(500).send();
   }
 });
 
