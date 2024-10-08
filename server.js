@@ -14,7 +14,7 @@ const transporter = require('./config/nodemailer');
 const User = require('./models/user');
 const auth = require('./middleware/auth');
 const Banner = require('./models/banner.js');
-
+const Meal = require('./models/meal.js');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -628,4 +628,66 @@ setInterval(removeExpiredBanners, 24 * 60 * 60 * 1000);
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+
+
+
+app.get('/planperuser', auth, async (req, res) => {
+  const { userId } = req.user; 
+  try {
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+    const { experienceLevel, fitnessGoal, equipment, physicalActivityLevel } = user.personalInfo;
+
+    const matchingPlans = await Plan.find({
+      'targetAudience.experienceLevels': experienceLevel,
+      'targetAudience.fitnessGoals': fitnessGoal,
+      'targetAudience.equipmentNeeded': equipment,
+      'targetAudience.activityLevels': physicalActivityLevel,
+    });
+
+    if (matchingPlans.length === 0) {
+      return res.status(404).send('No matching plans found');
+    }
+
+    res.json(matchingPlans);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error fetching plans');
+  }
+});
+
+
+
+//NUTRITION
+app.post('/meal',auth, async (req, res) => {
+  const { mealType, foods } = req.body;
+  const {userId} = req.user;
+  if (!userId || !mealType || !foods || foods.length === 0) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  try {
+    // Create a new Meal document
+    const newMeal = new Meal({
+      userId,
+      mealType,
+      foods,
+    });
+
+    // Save the meal to the database
+    const savedMeal = await newMeal.save();
+
+    res.status(201).json({
+      message: 'Meal saved successfully',
+      meal: savedMeal,
+    });
+  } catch (error) {
+    console.error('Error saving meal:', error);
+    res.status(500).json({ message: 'Server error while saving meal' });
+  }
 });
