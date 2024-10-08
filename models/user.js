@@ -13,11 +13,13 @@ const userSchema = new mongoose.Schema({
     age: Number,
     height: Number,
     weight: Number,
+    goalWeight: Number,
     physicalActivityLevel: String,
     fitnessGoal: String,
     equipment: String,
     experienceLevel: String,
-    bodyParts: [String]
+    bodyParts: [String],
+    calorieGoal: Number
   },
   personalInfoCompleted: { type: Boolean, default: false }
 });

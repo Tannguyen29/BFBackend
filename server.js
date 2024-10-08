@@ -72,9 +72,20 @@ app.post('/signin', async (req, res) => {
 app.post('/signup', async (req, res) => {
   const { name, email, password } = req.body;
   try {
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) {
+      return res.status(400).send('Email already exists');
+    }
+
+    const existingName = await User.findOne({ name });
+    if (existingName) {
+      return res.status(400).send('Name already exists');
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
+    
     const otp = crypto.randomInt(1000, 9999).toString();
-    const otpExpires = Date.now() + 10 * 60 * 1000;  
+    const otpExpires = Date.now() + 10 * 60 * 1000;
+
     const user = new User({ name, email, password: hashedPassword, otp, otpExpires });
     await user.save();
 
@@ -97,6 +108,7 @@ app.post('/signup', async (req, res) => {
     res.status(400).send('Error registering user');
   }
 });
+
 
 app.post('/resetpassword', async (req,res) =>{
   const {email, newPassword, confirmPassword } = req.body;
@@ -220,33 +232,34 @@ app.post('/personal-information-setup', auth, async (req, res) => {
     age,
     height,
     weight,
+    goalWeight,
     physicalActivityLevel,
     fitnessGoal,
     equipment,
     experienceLevel,
-    bodyParts
+    bodyParts,
+    calorieGoal
   } = req.body;
-
   try {
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).send('User not found');
     }
-
     user.personalInfo = {
       gender,
       age,
       height,
       weight,
+      goalWeight,
       physicalActivityLevel,
       fitnessGoal,
       equipment,
       experienceLevel,
-      bodyParts
+      bodyParts,
+      calorieGoal
     };
     user.personalInfoCompleted = true;
     await user.save();
-
     res.status(200).send('Personal information saved successfully');
   } catch (err) {
     console.error(err);
