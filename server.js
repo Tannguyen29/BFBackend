@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const Exercise = require('./models/exercise');
 const Plan = require('./models/plan');
+const Schedule = require('./models/schedule');
 
 const transporter = require('./config/nodemailer');
 
@@ -86,7 +87,7 @@ app.post('/signup', async (req, res) => {
     const otp = crypto.randomInt(1000, 9999).toString();
     const otpExpires = Date.now() + 10 * 60 * 1000;
 
-    const user = new User({ name, email, password: hashedPassword, otp, otpExpires });
+    const user = new User({ name, email, password: hashedPassword, otp, otpExpires, role: 'free' });
     await user.save();
 
     const mailOptions = {
@@ -137,7 +138,7 @@ app.post('/send-otp', async (req, res) => {
   const { email } = req.body;
   try {
     const otp = crypto.randomInt(1000, 9999).toString();
-    const otpExpires = Date.now() + 10 * 60 * 1000;  // OTP hết hạn sau 10 phút
+    const otpExpires = Date.now() + 10 * 60 * 1000; 
 
     let user = await User.findOne({ email });
     if (!user) {
@@ -278,7 +279,8 @@ app.get('/user-info', auth, async (req, res) => {
       name: user.name,
       personalInfo: user.personalInfo,
       personalInfoCompleted: user.personalInfoCompleted,
-      avatarUrl: user.avatarUrl
+      avatarUrl: user.avatarUrl,
+      role: user.role
     });
   } catch (err) {
     console.error(err);
@@ -556,6 +558,34 @@ app.get('/plans/:id', async (req, res) => {
   }
 });
 
+app.get('/planperuser', auth, async (req, res) => {
+  const { userId } = req.user; 
+  try {
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).send('User not found');
+    }
+    const { experienceLevel, fitnessGoal, equipment, physicalActivityLevel } = user.personalInfo;
+
+    const matchingPlans = await Plan.find({
+      'targetAudience.experienceLevels': experienceLevel,
+      'targetAudience.fitnessGoals': fitnessGoal,
+      'targetAudience.equipmentNeeded': equipment,
+      'targetAudience.activityLevels': physicalActivityLevel,
+    });
+
+    if (matchingPlans.length === 0) {
+      return res.status(404).send('No matching plans found');
+    }
+
+    res.json(matchingPlans);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error fetching plans');
+  }
+});
+
 ///////BANNER//////////
 // Create a new banner
 app.post('/banners', upload.single('image'), async (req, res) => {
@@ -643,37 +673,295 @@ app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-
-
-
-app.get('/planperuser', auth, async (req, res) => {
-  const { userId } = req.user; 
+// Get all students (for PT to select)
+app.get('/students', auth, async (req, res) => {
   try {
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).send('User not found');
-    }
-    const { experienceLevel, fitnessGoal, equipment, physicalActivityLevel } = user.personalInfo;
-
-    const matchingPlans = await Plan.find({
-      'targetAudience.experienceLevels': experienceLevel,
-      'targetAudience.fitnessGoals': fitnessGoal,
-      'targetAudience.equipmentNeeded': equipment,
-      'targetAudience.activityLevels': physicalActivityLevel,
-    });
-
-    if (matchingPlans.length === 0) {
-      return res.status(404).send('No matching plans found');
-    }
-
-    res.json(matchingPlans);
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error fetching plans');
+    const students = await User.find({ role: 'free' }, 'name');
+    res.json(students);
+  } catch (error) {
+    res.status(500).send('Server error');
   }
 });
 
+// Create new schedule
+app.post('/schedules', auth, async (req, res) => {
+  try {
+    const { studentId, date, startTime, endTime } = req.body;
+    
+    // Verify that the creator is a PT
+    const pt = await User.findById(req.user.userId);
+    if (pt.role !== 'PT') {
+      return res.status(403).send('Only PTs can create schedules');
+    }
+
+    const existingStudentSchedule = await Schedule.findOne({
+      studentId: studentId,
+      date: new Date(date)
+    });
+
+    if (existingStudentSchedule) {
+      return res.status(400).send('Student already has a schedule on this date');
+    }
+
+    const conflictingSchedule = await Schedule.findOne({
+      ptId: req.user.userId,
+      date: new Date(date),
+      $or: [
+        {
+          $and: [
+            { startTime: { $lte: startTime } },
+            { endTime: { $gt: startTime } }
+          ]
+        },
+        {
+          $and: [
+            { startTime: { $lt: endTime } },
+            { endTime: { $gte: endTime } }
+          ]
+        },
+        {
+          $and: [
+            { startTime: { $gte: startTime } },
+            { endTime: { $lte: endTime } }
+          ]
+        }
+      ]
+    });
+    
+    if (conflictingSchedule) {
+      return res.status(400).send('Time slot conflicts with an existing schedule');
+    }
+    
+    const newSchedule = new Schedule({
+      ptId: req.user.userId,
+      studentId,
+      date: new Date(date),
+      startTime,
+      endTime
+    });
+    await newSchedule.save();
+    
+    const scheduleWithDetails = await Schedule.findById(newSchedule._id)
+      .populate('ptId', 'name')
+      .populate('studentId', 'name');
+    
+    res.status(201).json(scheduleWithDetails);
+  } catch (error) {
+    console.error('Error creating schedule:', error);
+    res.status(500).send('Server error');
+  }
+});
+// Get PT's schedules
+app.get('/schedules', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    
+    // Nếu là PT, lấy tất cả lịch của PT đó
+    if (user.role === 'PT') {
+      const schedules = await Schedule.find({ ptId: req.user.userId })
+        .populate('studentId', 'name')
+        .sort({ date: 1, startTime: 1 }); // Sắp xếp theo ngày và giờ
+      return res.json(schedules);
+    }
+    
+    res.status(403).send('Access denied');
+  } catch (error) {
+    console.error('Error fetching schedules:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+// Get student's schedules
+app.get('/student-schedules', auth, async (req, res) => {
+  try {
+    const schedules = await Schedule.find({ studentId: req.user.userId })
+      .populate('ptId', 'name')
+      .sort({ date: 1, startTime: 1 }); // Sắp xếp theo ngày và giờ
+    
+    // Transform the data to include PT name
+    const formattedSchedules = schedules.map(schedule => ({
+      _id: schedule._id,
+      date: schedule.date,
+      startTime: schedule.startTime,
+      endTime: schedule.endTime,
+      status: schedule.status,
+      ptName: schedule.ptId.name
+    }));
+
+    res.json(formattedSchedules);
+  } catch (error) {
+    console.error('Error fetching student schedules:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+app.get('/schedules/range/:startDate/:endDate', auth, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.params;
+    
+    const schedules = await Schedule.find({
+      ptId: req.user.userId,
+      date: {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      }
+    })
+    .populate('studentId', 'name')
+    .sort({ date: 1, startTime: 1 });
+
+    res.json(schedules);
+  } catch (error) {
+    console.error('Error fetching schedule range:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+app.get('/schedules/date/:date', auth, async (req, res) => {
+  try {
+    const { date } = req.params;
+    const schedules = await Schedule.find({
+      ptId: req.user.userId,
+      date: new Date(date)
+    })
+    .populate('studentId', 'name')
+    .sort({ startTime: 1 });
+    
+    res.json(schedules);
+  } catch (error) {
+    console.error('Error fetching schedules for date:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+// Update schedule status (accept/reject by student)
+app.put('/schedules/:scheduleId', auth, async (req, res) => {
+  try {
+    const { scheduleId } = req.params;
+    const { startTime, endTime } = req.body;
+    
+    const schedule = await Schedule.findById(scheduleId);
+    
+    if (schedule.ptId.toString() !== req.user.userId) {
+      return res.status(403).send('Not authorized to update this schedule');
+    }
+
+    const conflictingSchedule = await Schedule.findOne({
+      ptId: req.user.userId,
+      date: schedule.date,
+      _id: { $ne: scheduleId },
+      $or: [
+        {
+          $and: [
+            { startTime: { $lte: startTime } },
+            { endTime: { $gt: startTime } }
+          ]
+        },
+        {
+          $and: [
+            { startTime: { $lt: endTime } },
+            { endTime: { $gte: endTime } }
+          ]
+        },
+        {
+          $and: [
+            { startTime: { $gte: startTime } },
+            { endTime: { $lte: endTime } }
+          ]
+        }
+      ]
+    });
+
+    if (conflictingSchedule) {
+      return res.status(400).send('New time slot conflicts with an existing schedule');
+    }
+
+    schedule.startTime = startTime;
+    schedule.endTime = endTime;
+    await schedule.save();
+
+    const updatedSchedule = await Schedule.findById(scheduleId)
+      .populate('studentId', 'name');
+    
+    res.json(updatedSchedule);
+  } catch (error) {
+    console.error('Error updating schedule:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+// Delete schedule (by PT only)
+app.delete('/schedules/:scheduleId', auth, async (req, res) => {
+  try {
+    const schedule = await Schedule.findById(req.params.scheduleId);
+    
+    if (schedule.ptId.toString() !== req.user.userId) {
+      return res.status(403).send('Not authorized to delete this schedule');
+    }
+
+    await schedule.deleteOne();
+    res.json({ message: 'Schedule deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting schedule:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+// Get available time slots for a specific date (optional feature)
+app.get('/available-slots/:date', auth, async (req, res) => {
+  try {
+    const { date } = req.params;
+    
+    // Get all schedules for the specified date
+    const schedules = await Schedule.find({
+      ptId: req.user.userId,
+      date: new Date(date)
+    });
+
+    // Define your working hours (e.g., 9 AM to 5 PM)
+    const workingHours = {
+      start: '09:00',
+      end: '17:00'
+    };
+
+    // Calculate available slots
+    // This is a simplified version - you might want to make it more sophisticated
+    const bookedSlots = schedules.map(schedule => ({
+      start: schedule.startTime,
+      end: schedule.endTime
+    }));
+
+    // Return available time slots
+    res.json({
+      workingHours,
+      bookedSlots
+    });
+  } catch (error) {
+    console.error('Error fetching available slots:', error);
+    res.status(500).send('Server error');
+  }
+});
+
+// Get schedules for a specific date range (optional feature)
+app.get('/schedules/range/:startDate/:endDate', auth, async (req, res) => {
+  try {
+    const { startDate, endDate } = req.params;
+    
+    const schedules = await Schedule.find({
+      ptId: req.user.userId,
+      date: {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate)
+      }
+    })
+    .populate('studentId', 'name')
+    .sort({ date: 1, startTime: 1 });
+
+    res.json(schedules);
+  } catch (error) {
+    console.error('Error fetching schedule range:', error);
+    res.status(500).send('Server error');
+  }
+});
 
 
 //NUTRITION

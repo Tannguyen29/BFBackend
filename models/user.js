@@ -4,6 +4,11 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true },
   password: String,
+  role: { 
+    type: String, 
+    enum: ['free', 'pro', 'PT'], 
+    default: 'free' 
+  },
   otp: String,
   otpExpires: Date,
   verified: { type: Boolean, default: false },
