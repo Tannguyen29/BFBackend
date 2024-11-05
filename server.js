@@ -683,16 +683,13 @@ app.post('/meal',auth, async (req, res) => {
   if (!userId || !mealType || !foods || foods.length === 0) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
-
   try {
-    // Create a new Meal document
     const newMeal = new Meal({
       userId,
       mealType,
       foods,
     });
 
-    // Save the meal to the database
     const savedMeal = await newMeal.save();
 
     res.status(201).json({
