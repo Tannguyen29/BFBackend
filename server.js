@@ -16,6 +16,7 @@ const User = require('./models/user');
 const auth = require('./middleware/auth');
 const Banner = require('./models/banner.js');
 const Meal = require('./models/meal.js');
+const PTPlan =require('./models/ptPlan.js');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -987,5 +988,40 @@ app.post('/meal',auth, async (req, res) => {
   } catch (error) {
     console.error('Error saving meal:', error);
     res.status(500).json({ message: 'Server error while saving meal' });
+  }
+});
+
+// PT Plans
+app.get('/pro-users', auth, async (req, res) => {
+  try {
+    const proUsers = await User.find({ role: 'pro' });
+    res.json(proUsers);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create new PT plan
+app.post('/pt-plans', auth, async (req, res) => {
+  try {
+    const newPlan = new PTPlan({
+      ptId: req.user.id,
+      ...req.body
+    });
+    await newPlan.save();
+    res.json(newPlan);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get PT plans
+app.get('/pt-plans', auth, async (req, res) => {
+  try {
+    const plans = await PTPlan.find({ ptId: req.user.id })
+      .populate('students.studentId');
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
   }
 });
