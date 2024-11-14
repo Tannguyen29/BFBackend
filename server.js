@@ -18,6 +18,7 @@ const User = require('./models/user');
 const auth = require('./middleware/auth');
 const Banner = require('./models/banner.js');
 const Meal = require('./models/meal.js');
+const PTPlan =require('./models/ptPlan.js');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -999,35 +1000,37 @@ app.post('/savemeals', auth, async (req, res) => {
 });
 
 
-
-//ZALOPAY
-app.post("/payment", async (req, res) => {
-  const embed_data = {};
-
-  const items = [{}];
-  const transID = Math.floor(Math.random() * 1000000);
-  const order = {
-    app_id: process.env.APP_ID,
-    app_trans_id: `${moment().format('YYMMDD')}_${transID}`,
-    app_user: "user123",
-    app_time: Date.now(),
-    item: JSON.stringify(items),
-    embed_data: JSON.stringify(embed_data),
-    amount: 50000,
-    description: `Lazada - Payment for the order #${transID}`,
-    bank_code: "zalopayapp",
-  };
-
-  // appid|app_trans_id|appuser|amount|apptime|embeddata|item
-  const data = process.env.APP_ID + "|" + order.app_trans_id + "|" + order.app_user + "|" + order.amount + "|" + order.app_time + "|" + order.embed_data + "|" + order.item;
-  order.mac = CryptoJS.HmacSHA256(data, process.env.ZALOPAY_KEY1).toString();
-
+// PT Plans
+app.get('/pro-users', auth, async (req, res) => {
   try {
-    const result = await axios.post(process.env.ZALOPAY_ENDPOINT, null, { params: order });
-    console.log(result.data);
-    res.status(200).json(result.data);
+    const proUsers = await User.find({ role: 'pro' });
+    res.json(proUsers);
   } catch (error) {
-    console.log(error.message);
-    res.status(500).json({ error: 'Failed to process payment' });
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create new PT plan
+app.post('/pt-plans', auth, async (req, res) => {
+  try {
+    const newPlan = new PTPlan({
+      ptId: req.user.id,
+      ...req.body
+    });
+    await newPlan.save();
+    res.json(newPlan);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get PT plans
+app.get('/pt-plans', auth, async (req, res) => {
+  try {
+    const plans = await PTPlan.find({ ptId: req.user.id })
+      .populate('students.studentId');
+    res.json(plans);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error' });
   }
 });
