@@ -13,7 +13,7 @@ const FoodItemSchema = new mongoose.Schema({
 
 const MealSchema = new mongoose.Schema({
   userId: { type: String, required: true },
-  mealType: { type: String, enum: ['breakfast', 'lunch', 'dinner', 'snack'], required: true },
+  mealType: { type: String, enum: ['Breakfast', 'Lunch', 'Dinner'], required: true },
   foods: [FoodItemSchema],
   date: { type: Date, default: Date.now },
 });

@@ -9,7 +9,9 @@ const crypto = require('crypto');
 const Exercise = require('./models/exercise');
 const Plan = require('./models/plan');
 const Schedule = require('./models/schedule');
-
+const axios = require('axios').default; // npm install axios
+const CryptoJS = require('crypto-js'); // npm install crypto-js
+const moment = require('moment'); // npm install moment
 const transporter = require('./config/nodemailer');
 
 const User = require('./models/user');
@@ -28,13 +30,14 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 
 const otpEmailTemplate = require('./otpEmailTemplate.jsx');
 
 const mongoUri = process.env.MONGO_URI || 'your-mongodb-uri-here';
-
+const configpayment = process.env.config;
 mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.log(err));
@@ -43,9 +46,10 @@ mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
 app.use(cors());
 app.use(bodyParser.json({limit: '50mb'}));
 app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
-
+app.use(express.json());
+app.use(express.urlencoded({extended: true}));
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: 'http://192.168.2.28:3000',
   optionsSuccessStatus: 200
 }));
 
@@ -966,30 +970,35 @@ app.get('/schedules/range/:startDate/:endDate', auth, async (req, res) => {
 
 
 //NUTRITION
-app.post('/meal',auth, async (req, res) => {
+app.post('/savemeals', auth, async (req, res) => {
   const { mealType, foods } = req.body;
-  const {userId} = req.user;
-  if (!userId || !mealType || !foods || foods.length === 0) {
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
+  const userId = req.user.userId;
+  const currentDate = new Date();
+
   try {
-    const newMeal = new Meal({
+    // Check for empty fields
+    if (!mealType || foods.length === 0) {
+      return res.status(400).json({ message: 'mealType and foods are required' });
+    }
+
+    // Create a new meal document
+    const meal = new Meal({
       userId,
       mealType,
       foods,
+      date: currentDate
     });
 
-    const savedMeal = await newMeal.save();
+    // Save the meal to the database
+    await meal.save();
 
-    res.status(201).json({
-      message: 'Meal saved successfully',
-      meal: savedMeal,
-    });
+    res.status(201).json(meal);
   } catch (error) {
     console.error('Error saving meal:', error);
-    res.status(500).json({ message: 'Server error while saving meal' });
+    res.status(500).json({ message: 'Failed to save meal' });
   }
 });
+
 
 // PT Plans
 app.get('/pro-users', auth, async (req, res) => {
