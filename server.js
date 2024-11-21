@@ -50,7 +50,7 @@ app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cors({
-  origin: 'http://10.22.64.220:3000',
+  origin: 'http://192.168.2.28:3000',
   optionsSuccessStatus: 200
 }));
 
@@ -1093,7 +1093,7 @@ app.get('/meals/:date/:mealType', auth, async (req, res) => {
 // PT Plans
 app.get('/pro-users', auth, async (req, res) => {
   try {
-    const proUsers = await User.find({ role: 'pro' });
+    const proUsers = await User.find({ role: 'premium' });
     res.json(proUsers);
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
@@ -1101,27 +1101,98 @@ app.get('/pro-users', auth, async (req, res) => {
 });
 
 // Create new PT plan
+// Thêm route để tạo PT plan mới
 app.post('/pt-plans', auth, async (req, res) => {
   try {
+    const {
+      title,
+      targetAudience,
+      duration,
+      students,
+      exercises
+    } = req.body;
+
+    // Tạo cấu trúc weeks và days
+    const weeks = [];
+    for (let weekNum = 1; weekNum <= duration.weeks; weekNum++) {
+      const days = [];
+      for (let dayNum = 1; dayNum <= duration.daysPerWeek; dayNum++) {
+        days.push({
+          dayNumber: dayNum,
+          exercises: exercises.filter(ex => 
+            ex.weekNumber === weekNum && ex.dayNumber === dayNum
+          ).map(ex => ({
+            exerciseId: ex.exercise._id,
+            name: ex.exercise.name,
+            duration: ex.exercise.duration || 0,
+            sets: ex.exercise.sets || 1,
+            reps: ex.exercise.reps || 0,
+            type: ex.exercise.type || 'exercise',
+            gifUrl: ex.exercise.gifUrl
+          })),
+          level: targetAudience.experienceLevels[0] || 'beginner',
+          focusArea: exercises.filter(ex => 
+            ex.weekNumber === weekNum && ex.dayNumber === dayNum
+          ).map(ex => ex.exercise.bodyPart)
+        });
+      }
+      weeks.push({
+        weekNumber: weekNum,
+        days: days
+      });
+    }
+
+    // Tạo student progress cho mỗi student được chọn
+    const studentProgress = students.map(studentId => ({
+      studentId,
+      completedWorkouts: [],
+      lastAccessed: new Date()
+    }));
+
     const newPlan = new PTPlan({
-      ptId: req.user.id,
-      ...req.body
+      ptId: req.user.userId,
+      title,
+      targetAudience,
+      duration,
+      weeks,
+      students: studentProgress,
     });
+
     await newPlan.save();
-    res.json(newPlan);
+    res.status(201).json(newPlan);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error creating PT plan:', error);
+    res.status(500).json({ message: 'Error creating plan', error: error.message });
   }
 });
 
-// Get PT plans
+// Cập nhật route lấy danh sách plans để populate thông tin student
 app.get('/pt-plans', auth, async (req, res) => {
   try {
-    const plans = await PTPlan.find({ ptId: req.user.id })
-      .populate('students.studentId');
-    res.json(plans);
+    const plans = await PTPlan.find({ ptId: req.user.userId })
+      .populate('students.studentId', 'name email') // Populate thông tin student
+      .populate('weeks.days.exercises.exerciseId'); // Populate thông tin exercise
+    
+    // Map data để client dễ sử dụng hơn
+    const formattedPlans = plans.map(plan => ({
+      _id: plan._id,
+      title: plan.title,
+      duration: plan.duration,
+      targetAudience: plan.targetAudience,
+      students: plan.students.map(student => ({
+        ...student.toObject(),
+        name: student.studentId?.name || 'Unknown Student',
+        email: student.studentId?.email
+      })),
+      weeks: plan.weeks,
+      createdAt: plan.createdAt,
+      updatedAt: plan.updatedAt
+    }));
+
+    res.json(formattedPlans);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching PT plans:', error);
+    res.status(500).json({ message: 'Error fetching plans' });
   }
 });
 
