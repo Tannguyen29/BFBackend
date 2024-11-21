@@ -9,11 +9,12 @@ const crypto = require('crypto');
 const Exercise = require('./models/exercise');
 const Plan = require('./models/plan');
 const Schedule = require('./models/schedule');
-const axios = require('axios').default; // npm install axios
-const CryptoJS = require('crypto-js'); // npm install crypto-js
-const moment = require('moment'); // npm install moment
+const axios = require('axios').default;
+const CryptoJS = require('crypto-js'); 
+const moment = require('moment'); 
 const transporter = require('./config/nodemailer');
-
+const querystring = require('qs');
+const checkPremiumExpiration = require('./middleware/checkPremiumExpiration');
 const User = require('./models/user');
 const auth = require('./middleware/auth');
 const Banner = require('./models/banner.js');
@@ -49,7 +50,7 @@ app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cors({
-  origin: 'http://192.168.2.28:3000',
+  origin: 'http://10.22.64.220:3000',
   optionsSuccessStatus: 200
 }));
 
@@ -273,23 +274,34 @@ app.post('/personal-information-setup', auth, async (req, res) => {
   }
 });
 
-app.get('/user-info', auth, async (req, res) => {
-  const { userId } = req.user;
+app.get('/user-info', auth, checkPremiumExpiration, async (req, res) => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(req.user.userId);
     if (!user) {
-      return res.status(404).send('User not found');
+      return res.status(404).json({ message: 'User not found' });
     }
+
+    console.log('Sending user info:', {
+      userId: user._id,
+      role: user.role,
+      premiumExpireDate: user.premiumExpireDate
+    });
+
     res.json({
+      _id: user._id,
       name: user.name,
+      email: user.email,
+      role: user.role,
       personalInfo: user.personalInfo,
       personalInfoCompleted: user.personalInfoCompleted,
       avatarUrl: user.avatarUrl,
-      role: user.role
+      premiumExpireDate: user.premiumExpireDate,
+      daysRemaining: user.premiumExpireDate ? 
+        moment(user.premiumExpireDate).diff(moment(), 'days') : 0
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error fetching user information');
+  } catch (error) {
+    console.error('Error getting user info:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
@@ -761,11 +773,11 @@ app.get('/schedules', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.userId);
     
-    // Nếu là PT, lấy tất cả lịch của PT đó
+    // Nếu là PT, lấy tất c lịch của PT đó
     if (user.role === 'PT') {
       const schedules = await Schedule.find({ ptId: req.user.userId })
         .populate('studentId', 'name')
-        .sort({ date: 1, startTime: 1 }); // Sắp xếp theo ngày và giờ
+        .sort({ date: 1, startTime: 1 });
       return res.json(schedules);
     }
     
@@ -971,34 +983,112 @@ app.get('/schedules/range/:startDate/:endDate', auth, async (req, res) => {
 
 //NUTRITION
 app.post('/savemeals', auth, async (req, res) => {
-  const { mealType, foods } = req.body;
+  const { mealType, foods, date } = req.body;
   const userId = req.user.userId;
-  const currentDate = new Date();
 
   try {
-    // Check for empty fields
-    if (!mealType || foods.length === 0) {
-      return res.status(400).json({ message: 'mealType and foods are required' });
+    if (!mealType || !foods || foods.length === 0 || !date) {
+      return res.status(400).json({ message: 'mealType, foods, and date are required' });
     }
 
-    // Create a new meal document
-    const meal = new Meal({
-      userId,
-      mealType,
-      foods,
-      date: currentDate
+    console.log('Received date:', date);
+    const parsedDate = new Date(date);
+    console.log('Parsed date:', parsedDate);
+
+    // Set the time to midnight in UTC
+    const startOfDay = new Date(parsedDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(parsedDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
+
+    console.log('Query date range:', {
+      start: startOfDay,
+      end: endOfDay
     });
 
-    // Save the meal to the database
-    await meal.save();
+    // First, check if a meal of this type already exists for this date and user
+    const existingMeal = await Meal.findOne({
+      userId,
+      mealType,
+      date: {
+        $gte: startOfDay,
+        $lt: endOfDay
+      }
+    });
+
+    let meal;
+    if (existingMeal) {
+      console.log('Updating existing meal:', existingMeal._id);
+      // If meal exists, update by adding new foods to existing array
+      meal = await Meal.findByIdAndUpdate(
+        existingMeal._id,
+        {
+          $push: { foods: { $each: foods } }
+        },
+        { new: true }
+      );
+    } else {
+      console.log('Creating new meal for date:', parsedDate);
+      // If meal doesn't exist, create new meal
+      meal = new Meal({
+        userId,
+        mealType,
+        foods,
+        date: parsedDate
+      });
+      await meal.save();
+    }
+
+    console.log('Saved meal:', {
+      id: meal._id,
+      date: meal.date,
+      mealType: meal.mealType
+    });
 
     res.status(201).json(meal);
   } catch (error) {
-    console.error('Error saving meal:', error);
-    res.status(500).json({ message: 'Failed to save meal' });
+    console.error('Error saving/updating meal:', error);
+    console.error('Stack:', error.stack);
+    res.status(500).json({ message: 'Failed to save/update meal', error: error.message });
   }
 });
 
+
+
+// Lấy meal theo loại trong ngày
+app.get('/meals/:date/:mealType', auth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { mealType } = req.params;
+    const dateParam = new Date(req.params.date);
+
+    // Tạo range để lấy meal trong ngày
+    const startDate = new Date(dateParam.setHours(0, 0, 0, 0));
+    const endDate = new Date(dateParam.setHours(23, 59, 59, 999));
+
+    const meal = await Meal.findOne({
+      userId: userId,
+      mealType: mealType,
+      date: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    });
+
+    if (!meal) {
+      return res.status(404).json({ 
+        message: `No ${mealType} meal found for this date` 
+      });
+    }
+
+    res.json(meal);
+
+  } catch (error) {
+    console.error('Error fetching meal:', error);
+    res.status(500).json({ message: 'Failed to fetch meal' });
+  }
+});
 
 // PT Plans
 app.get('/pro-users', auth, async (req, res) => {
@@ -1034,3 +1124,275 @@ app.get('/pt-plans', auth, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// VNPAY Payment Routes
+const qs = require('qs');
+
+// Hàm sắp xếp object theo key
+function sortObject(obj) {
+    let sorted = {};
+    let str = [];
+    let key;
+    for (key in obj){
+        if (obj.hasOwnProperty(key)) {
+            str.push(encodeURIComponent(key));
+        }
+    }
+    str.sort();
+    for (key = 0; key < str.length; key++) {
+        sorted[str[key]] = encodeURIComponent(obj[str[key]]).replace(/%20/g, "+");
+    }
+    return sorted;
+}
+
+// Create payment route
+app.post('/create-payment', auth, async (req, res) => {
+  try {
+    const ipAddr = req.headers['x-forwarded-for'] ||
+        req.socket.remoteAddress || '127.0.0.1';
+
+    const date = new Date();
+    const createDate = moment(date).format('YYYYMMDDHHmmss');
+    const orderId = moment(date).format('HHmmss');
+
+    // Lấy thông tin từ request body
+    const { amount, duration, bankCode } = req.body;
+    const amountInVND = Math.round(amount);
+
+    // Tạo orderInfo với format mới bao gồm duration và userId
+    const orderInfo = `Premium Plan ${duration} Months_${req.user.userId}`;
+
+    let vnp_Params = {
+      vnp_Version: '2.1.0',
+      vnp_Command: 'pay',
+      vnp_TmnCode: process.env.VNP_TMN_CODE,
+      vnp_Locale: 'vn',
+      vnp_CurrCode: 'VND',
+      vnp_TxnRef: orderId,
+      vnp_OrderInfo: orderInfo,
+      vnp_OrderType: 'other',
+      vnp_Amount: amountInVND * 100,
+      vnp_ReturnUrl: `${process.env.FRONTEND_URL}/vnpay-return`,
+      vnp_IpAddr: ipAddr,
+      vnp_CreateDate: createDate
+    };
+
+    if (bankCode) {
+      vnp_Params['vnp_BankCode'] = bankCode;
+    }
+
+    vnp_Params = sortObject(vnp_Params);
+
+    const signData = querystring.stringify(vnp_Params, { encode: false });
+    const hmac = crypto.createHmac("sha512", process.env.VNP_HASH_SECRET);
+    const signed = hmac.update(Buffer.from(signData, 'utf-8')).digest("hex");
+    
+    vnp_Params['vnp_SecureHash'] = signed;
+    
+    const paymentUrl = `${process.env.VNP_URL}?${querystring.stringify(vnp_Params, { encode: false })}`;
+
+    res.json({ paymentUrl });
+  } catch (error) {
+    console.error('Payment Error:', error);
+    res.status(500).json({ 
+      message: 'Failed to create payment URL',
+      error: error.message 
+    });
+  }
+});
+
+// VNPAY IPN (Instant Payment Notification)
+app.get('/vnpay-ipn', async (req, res) => {
+  try {
+    const vnpParams = req.query;
+    const secureHash = vnpParams.vnp_SecureHash;
+
+    // Remove hash from params
+    delete vnpParams.vnp_SecureHash;
+    delete vnpParams.vnp_SecureHashType;
+
+    // Sort parameters
+    const sortedParams = {};
+    Object.keys(vnpParams).sort().forEach(key => {
+      sortedParams[key] = vnpParams[key];
+    });
+
+    // Verify signature
+    const signData = querystring.stringify(sortedParams, { encode: false });
+    const hmac = crypto.createHmac('sha256', process.env.VNP_HASH_SECRET);
+    const signed = hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+
+    if (secureHash === signed) {
+      const rspCode = vnpParams.vnp_ResponseCode;
+
+      if (rspCode === '00') {
+        const orderInfo = vnpParams.vnp_OrderInfo;
+        const [planInfo, userId] = orderInfo.split('_');
+        const duration = parseInt(planInfo.match(/\d+/)[0]);
+        
+        const expireDate = moment().add(duration, 'months').toDate();
+
+        console.log('Updating user premium status:', {
+          userId,
+          duration,
+          expireDate
+        });
+
+        const updatedUser = await User.findByIdAndUpdate(
+          userId, 
+          {
+            role: 'premium',
+            premiumExpireDate: expireDate
+          },
+          { new: true }
+        );
+
+        console.log('Updated user:', {
+          userId: updatedUser._id,
+          newRole: updatedUser.role,
+          newExpireDate: updatedUser.premiumExpireDate
+        });
+
+        res.status(200).json({ RspCode: '00', Message: 'Success' });
+      } else {
+        res.status(200).json({ RspCode: rspCode, Message: 'Payment failed' });
+      }
+    } else {
+      res.status(200).json({ RspCode: '97', Message: 'Invalid signature' });
+    }
+  } catch (error) {
+    console.error('IPN Error:', error);
+    res.status(500).json({ RspCode: '99', Message: 'Internal server error' });
+  }
+});
+
+// VNPAY Return URL handler
+app.get('/vnpay-return', async (req, res) => {
+  try {
+    const vnpParams = req.query;
+    const secureHash = vnpParams.vnp_SecureHash;
+
+    delete vnpParams.vnp_SecureHash;
+    delete vnpParams.vnp_SecureHashType;
+
+    const sortedParams = {};
+    Object.keys(vnpParams).sort().forEach(key => {
+      sortedParams[key] = vnpParams[key];
+    });
+
+    const signData = querystring.stringify(sortedParams, { encode: false });
+    const hmac = crypto.createHmac('sha512', process.env.VNP_HASH_SECRET);
+    const signed = hmac.update(Buffer.from(signData, 'utf-8')).digest('hex');
+
+    if (secureHash === signed) {
+      const rspCode = vnpParams.vnp_ResponseCode;
+      
+      if (rspCode === '00') {
+        const orderInfo = vnpParams.vnp_OrderInfo;
+        const [planInfo, userId] = orderInfo.split('_');
+        const duration = parseInt(planInfo.match(/\d+/)[0]);
+
+        if (userId) {
+          const expireDate = moment().add(duration, 'months').toDate();
+          
+          await User.findByIdAndUpdate(userId, {
+            role: 'premium',
+            premiumExpireDate: expireDate
+          });
+
+          console.log('Updated user premium status:', {
+            userId,
+            role: 'premium',
+            expireDate
+          });
+        }
+
+        res.json({
+          status: 'success',
+          code: rspCode,
+          message: 'Payment successful'
+        });
+      } else {
+        res.json({
+          status: 'error',
+          code: rspCode,
+          message: 'Payment failed'
+        });
+      }
+    } else {
+      res.json({
+        status: 'error',
+        code: '97',
+        message: 'Invalid signature'
+      });
+    }
+  } catch (error) {
+    console.error('Return URL Error:', error);
+    res.status(500).json({
+      status: 'error',
+      code: '99',
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Thêm API để lấy thông tin premium
+app.get('/premium-status', auth, checkPremiumExpiration, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({
+      role: user.role,
+      premiumExpireDate: user.premiumExpireDate,
+      daysRemaining: user.premiumExpireDate ? 
+        moment(user.premiumExpireDate).diff(moment(), 'days') : 0
+    });
+  } catch (error) {
+    console.error('Error getting premium status:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Thêm route để cập nhật role
+app.post('/update-user-role', auth, async (req, res) => {
+  try {
+    const { orderInfo } = req.body;
+    const [planInfo, userId] = orderInfo.split('_');
+    const duration = parseInt(planInfo.match(/\d+/)[0]);
+    const expireDate = moment().add(duration, 'months').toDate();
+
+    console.log('Updating user role:', {
+      userId,
+      planInfo,
+      duration,
+      expireDate
+    });
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        role: 'premium',
+        premiumExpireDate: expireDate
+      },
+      { new: true }
+    );
+
+    console.log('User updated:', {
+      id: updatedUser._id,
+      role: updatedUser.role,
+      expireDate: updatedUser.premiumExpireDate
+    });
+
+    res.json({
+      message: 'User role updated successfully',
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    res.status(500).json({ message: 'Failed to update user role' });
+  }
+});
+

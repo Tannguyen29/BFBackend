@@ -15,7 +15,7 @@ const MealSchema = new mongoose.Schema({
   userId: { type: String, required: true },
   mealType: { type: String, enum: ['Breakfast', 'Lunch', 'Dinner'], required: true },
   foods: [FoodItemSchema],
-  date: { type: Date, default: Date.now },
+  date: { type: Date, required: true },
 });
 
 module.exports = mongoose.model('Meal', MealSchema);

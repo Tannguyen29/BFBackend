@@ -6,7 +6,7 @@ const userSchema = new mongoose.Schema({
   password: String,
   role: { 
     type: String, 
-    enum: ['free', 'pro', 'PT'], 
+    enum: ['free', 'premium', 'admin'], 
     default: 'free' 
   },
   otp: String,
@@ -26,7 +26,11 @@ const userSchema = new mongoose.Schema({
     bodyParts: [String],
     calorieGoal: Number
   },
-  personalInfoCompleted: { type: Boolean, default: false }
+  personalInfoCompleted: { type: Boolean, default: false },
+  premiumExpireDate: {
+    type: Date,
+    default: null
+  }
 });
 
 const User = mongoose.model('User', userSchema);
