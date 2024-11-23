@@ -1142,7 +1142,6 @@ app.post('/pt-plans', auth, async (req, res) => {
       });
     }
 
-    // Tạo student progress cho mỗi student được chọn
     const studentProgress = students.map(studentId => ({
       studentId,
       completedWorkouts: [],
@@ -1166,14 +1165,14 @@ app.post('/pt-plans', auth, async (req, res) => {
   }
 });
 
-// Cập nhật route lấy danh sách plans để populate thông tin student
+
 app.get('/pt-plans', auth, async (req, res) => {
   try {
     const plans = await PTPlan.find({ ptId: req.user.userId })
-      .populate('students.studentId', 'name email') // Populate thông tin student
-      .populate('weeks.days.exercises.exerciseId'); // Populate thông tin exercise
+      .populate('students.studentId', 'name email') 
+      .populate('weeks.days.exercises.exerciseId'); 
     
-    // Map data để client dễ sử dụng hơn
+
     const formattedPlans = plans.map(plan => ({
       _id: plan._id,
       title: plan.title,
@@ -1193,6 +1192,111 @@ app.get('/pt-plans', auth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching PT plans:', error);
     res.status(500).json({ message: 'Error fetching plans' });
+  }
+});
+app.get('/pt-plans/:planId', auth, async (req, res) => {
+  try {
+    const plan = await PTPlan.findOne({ 
+      _id: req.params.planId,
+      ptId: req.user.userId 
+    })
+    .populate('students.studentId', 'name email')
+    .populate('weeks.days.exercises.exerciseId');
+
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    res.json(plan);
+  } catch (error) {
+    console.error('Error fetching plan details:', error);
+    res.status(500).json({ message: 'Error fetching plan details' });
+  }
+});
+
+
+app.put('/pt-plans/:planId', auth, async (req, res) => {
+  try {
+    const {
+      title,
+      targetAudience,
+      duration,
+      students,
+      exercises
+    } = req.body;
+
+    if (!title?.trim()) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+    if (!targetAudience?.experienceLevels?.length) {
+      return res.status(400).json({ message: 'Experience levels are required' });
+    }
+    if (!targetAudience?.fitnessGoals?.length) {
+      return res.status(400).json({ message: 'Fitness goals are required' });
+    }
+    if (!targetAudience?.equipmentNeeded?.length) {
+      return res.status(400).json({ message: 'Equipment needed is required' });
+    }
+    if (!duration?.weeks || duration.weeks <= 0) {
+      return res.status(400).json({ message: 'Valid number of weeks is required' });
+    }
+    if (!duration?.daysPerWeek || duration.daysPerWeek <= 0) {
+      return res.status(400).json({ message: 'Valid number of days per week is required' });
+    }
+    if (!students?.length) {
+      return res.status(400).json({ message: 'At least one student must be selected' });
+    }
+    if (!exercises?.length) {
+      return res.status(400).json({ message: 'At least one exercise is required' });
+    }
+
+    const existingPlan = await PTPlan.findOne({
+      _id: req.params.planId,
+      ptId: req.user.userId
+    });
+
+    if (!existingPlan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    const uniqueStudents = [...new Set(students)];
+
+    const existingStudentIds = existingPlan.students.map(s => 
+      s.studentId.toString()
+    );
+
+    const newStudentProgress = uniqueStudents
+      .filter(studentId => !existingStudentIds.includes(studentId.toString()))
+      .map(studentId => ({
+        studentId,
+        completedWorkouts: [],
+        lastAccessed: new Date()
+      }));
+
+    const updatedStudents = [
+      ...existingPlan.students.filter(s => 
+        uniqueStudents.includes(s.studentId.toString())
+      ),
+      ...newStudentProgress
+    ];
+
+    const updatedPlan = await PTPlan.findByIdAndUpdate(
+      req.params.planId,
+      {
+        title,
+        targetAudience,
+        duration,
+        weeks,
+        students: updatedStudents,
+        updatedAt: new Date()
+      },
+      { new: true }
+    );
+
+    res.json(updatedPlan);
+  } catch (error) {
+    console.error('Error updating PT plan:', error);
+    res.status(500).json({ message: 'Error updating plan', error: error.message });
   }
 });
 
@@ -1522,4 +1626,6 @@ app.post('/update-user-role', auth, async (req, res) => {
     res.status(500).json({ message: 'Failed to update user role' });
   }
 });
+
+
 
