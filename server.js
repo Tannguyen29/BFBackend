@@ -50,7 +50,7 @@ app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cors({
-  origin: 'http://192.168.2.28:3000',
+  origin: 'http://localhost:3000',
   optionsSuccessStatus: 200
 }));
 
@@ -1193,6 +1193,62 @@ app.get('/pt-plans', auth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching PT plans:', error);
     res.status(500).json({ message: 'Error fetching plans' });
+  }
+});
+
+// Backend routes
+app.get('/student-pt-plans', auth, async (req, res) => {
+  try {
+    // Tìm tất cả plans có chứa studentId của user hiện tại
+    const plans = await PTPlan.find({
+      'students.studentId': req.user.userId
+    }).populate('ptId', 'name email'); // Populate thông tin PT
+
+    // Format lại data trước khi gửi về client
+    const formattedPlans = plans.map(plan => ({
+      _id: plan._id,
+      title: plan.title,
+      subtitle: plan.title, // Có thể thay đổi nếu có trường subtitle riêng
+      ptName: plan.ptId.name,
+      targetAudience: plan.targetAudience,
+      duration: plan.duration,
+      weeks: plan.weeks,
+      progress: plan.students.find(
+        student => student.studentId.toString() === req.user.userId
+      )?.completedWorkouts || []
+    }));
+
+    res.json(formattedPlans);
+  } catch (error) {
+    console.error('Error fetching student PT plans:', error);
+    res.status(500).json({ message: 'Error fetching plans' });
+  }
+});
+
+// Thêm route để lấy chi tiết của một plan
+app.get('/student-pt-plans/:planId', auth, async (req, res) => {
+  try {
+    const plan = await PTPlan.findById(req.params.planId)
+      .populate('ptId', 'name email')
+      .populate('weeks.days.exercises.exerciseId');
+      
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    // Kiểm tra xem user có quyền truy cập plan này không 
+    const isStudent = plan.students.some(
+      student => student.studentId.toString() === req.user.userId
+    );
+
+    if (!isStudent) {
+      return res.status(403).json({ message: 'Not authorized to view this plan' });
+    }
+
+    res.json(plan);
+  } catch (error) {
+    console.error('Error fetching PT plan details:', error);
+    res.status(500).json({ message: 'Error fetching plan details' });
   }
 });
 
