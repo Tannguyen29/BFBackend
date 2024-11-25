@@ -20,6 +20,7 @@ const auth = require('./middleware/auth');
 const Banner = require('./models/banner.js');
 const Meal = require('./models/meal.js');
 const PTPlan =require('./models/ptPlan.js');
+const UserProgress = require('./models/userProgress');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -44,13 +45,18 @@ mongoose.connect(mongoUri, { useNewUrlParser: true, useUnifiedTopology: true })
   .catch(err => console.log(err));
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization'],
+  credentials: true
+}));
 app.use(bodyParser.json({limit: '50mb'}));
 app.use(bodyParser.urlencoded({limit: '50mb', extended: true}));
 app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: 'http://192.168.2.28:3000',
   optionsSuccessStatus: 200
 }));
 
@@ -479,32 +485,93 @@ app.get('/users', async (req, res) => {
 // Create a new plan
 app.post('/plans', upload.single('backgroundImage'), async (req, res) => {
   try {
-    const planData = JSON.parse(req.body.planData);
-
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: 'PlanImage'
-      });
-
-      planData.backgroundImage = result.secure_url;
+    let planData;
+    try {
+      planData = JSON.parse(req.body.planData);
+    } catch (error) {
+      console.error('Error parsing planData:', error);
+      return res.status(400).json({ message: 'Invalid plan data format' });
     }
 
-    // Include targetAudience in the new plan
-    const plan = new Plan({
-      ...planData,
-      targetAudience: planData.targetAudience
+    // Validate required fields
+    if (!planData.title) {
+      return res.status(400).json({ message: 'Title is required' });
+    }
+    if (!planData.duration?.weeks || !planData.duration?.daysPerWeek) {
+      return res.status(400).json({ message: 'Duration is required' });
+    }
+
+    // Handle background image
+    let imageUrl = planData.backgroundImage;
+    if (req.file) {
+      try {
+        const result = await cloudinary.uploader.upload(req.file.path, {
+          folder: 'plans'
+        });
+        imageUrl = result.secure_url;
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        // Continue without image if upload fails
+      }
+    }
+
+    // Format weeks data correctly
+    const formattedWeeks = planData.weeks.map(week => ({
+      weekNumber: week.weekNumber,
+      days: week.days.map(day => ({
+        dayNumber: day.dayNumber,
+        exercises: day.exercises.map(exercise => ({
+          name: exercise.name,
+          duration: parseInt(exercise.duration) || 0,
+          sets: parseInt(exercise.sets) || 1,
+          reps: parseInt(exercise.reps) || 0,
+          type: exercise.type || ''
+        })),
+        level: day.level || '',
+        totalTime: day.totalTime || '0 minutes',
+        focusArea: Array.isArray(day.focusArea) ? day.focusArea : []
+      }))
+    }));
+
+    // Create new plan with formatted data
+    const newPlan = new Plan({
+      title: planData.title,
+      subtitle: planData.subtitle || '',
+      description: planData.description || '',
+      backgroundImage: imageUrl,
+      isPro: planData.isPro || false,
+      accentColor: planData.accentColor || '#000000',
+      targetAudience: {
+        experienceLevels: Array.isArray(planData.targetAudience?.experienceLevels) 
+          ? planData.targetAudience.experienceLevels 
+          : [],
+        fitnessGoals: Array.isArray(planData.targetAudience?.fitnessGoals) 
+          ? planData.targetAudience.fitnessGoals 
+          : [],
+        equipmentNeeded: Array.isArray(planData.targetAudience?.equipmentNeeded) 
+          ? planData.targetAudience.equipmentNeeded 
+          : [],
+        activityLevels: Array.isArray(planData.targetAudience?.activityLevels) 
+          ? planData.targetAudience.activityLevels 
+          : []
+      },
+      duration: {
+        weeks: parseInt(planData.duration.weeks),
+        daysPerWeek: parseInt(planData.duration.daysPerWeek)
+      },
+      weeks: formattedWeeks
     });
 
-    const validationError = plan.validateSync();
-    if (validationError) {
-      console.error('Validation error creating plan:', validationError);
-      return res.status(400).json({ error: validationError.message });
-    }
-    await plan.save();
-    res.status(201).send(plan);
+    const savedPlan = await newPlan.save();
+    res.status(201).json(savedPlan);
+
   } catch (error) {
     console.error('Error creating plan:', error);
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ 
+      message: 'Error creating plan', 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 });
 
@@ -1124,9 +1191,9 @@ app.post('/pt-plans', auth, async (req, res) => {
           ).map(ex => ({
             exerciseId: ex.exercise._id,
             name: ex.exercise.name,
-            duration: ex.exercise.duration || 0,
-            sets: ex.exercise.sets || 1,
-            reps: ex.exercise.reps || 0,
+            duration: parseInt(ex.exercise.duration) || 0,
+            sets: parseInt(ex.exercise.sets) || 1,
+            reps: parseInt(ex.exercise.reps) || 0,
             type: ex.exercise.type || 'exercise',
             gifUrl: ex.exercise.gifUrl
           })),
@@ -1259,8 +1326,38 @@ app.put('/pt-plans/:planId', auth, async (req, res) => {
       return res.status(404).json({ message: 'Plan not found' });
     }
 
-    const uniqueStudents = [...new Set(students)];
+    // Tạo cấu trúc weeks và days mới
+    const weeks = [];
+    for (let weekNum = 1; weekNum <= duration.weeks; weekNum++) {
+      const days = [];
+      for (let dayNum = 1; dayNum <= duration.daysPerWeek; dayNum++) {
+        days.push({
+          dayNumber: dayNum,
+          exercises: exercises.filter(ex => 
+            ex.weekNumber === weekNum && ex.dayNumber === dayNum
+          ).map(ex => ({
+            exerciseId: ex.exercise._id,
+            name: ex.exercise.name,
+            duration: parseInt(ex.exercise.duration) || 0,
+            sets: parseInt(ex.exercise.sets) || 1,
+            reps: parseInt(ex.exercise.reps) || 0,
+            type: ex.exercise.type || 'exercise',
+            gifUrl: ex.exercise.gifUrl
+          })),
+          level: targetAudience.experienceLevels[0] || 'beginner',
+          focusArea: exercises.filter(ex => 
+            ex.weekNumber === weekNum && ex.dayNumber === dayNum
+          ).map(ex => ex.exercise.bodyPart)
+        });
+      }
+      weeks.push({
+        weekNumber: weekNum,
+        days: days
+      });
+    }
 
+    // Xử lý students
+    const uniqueStudents = [...new Set(students)];
     const existingStudentIds = existingPlan.students.map(s => 
       s.studentId.toString()
     );
@@ -1280,18 +1377,20 @@ app.put('/pt-plans/:planId', auth, async (req, res) => {
       ...newStudentProgress
     ];
 
+    // Update plan với weeks mới
     const updatedPlan = await PTPlan.findByIdAndUpdate(
       req.params.planId,
       {
         title,
         targetAudience,
         duration,
-        weeks,
+        weeks, // Thêm weeks đã đưc tạo ở trên
         students: updatedStudents,
         updatedAt: new Date()
       },
       { new: true }
-    );
+    ).populate('students.studentId', 'name email')
+     .populate('weeks.days.exercises.exerciseId');
 
     res.json(updatedPlan);
   } catch (error) {
@@ -1624,6 +1723,343 @@ app.post('/update-user-role', auth, async (req, res) => {
   } catch (error) {
     console.error('Error updating user role:', error);
     res.status(500).json({ message: 'Failed to update user role' });
+  }
+});
+
+// Lấy progress của student trong một plan
+app.get('/pt-plans/:planId/progress', auth, async (req, res) => {
+  try {
+    const plan = await PTPlan.findOne({
+      _id: req.params.planId,
+      'students.studentId': req.user.userId
+    });
+
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    const studentProgress = plan.students.find(
+      student => student.studentId.toString() === req.user.userId
+    );
+
+    if (!studentProgress) {
+      return res.status(404).json({ message: 'Student progress not found' });
+    }
+
+    res.json({
+      completedWorkouts: studentProgress.completedWorkouts,
+      currentDay: studentProgress.currentDay,
+      lastUnlockTime: studentProgress.lastUnlockTime
+    });
+  } catch (error) {
+    console.error('Error getting progress:', error);
+    res.status(500).json({ message: 'Error getting progress' });
+  }
+});
+
+// Cập nhật progress của student trong một plan
+app.post('/pt-plans/:planId/progress', auth, async (req, res) => {
+  try {
+    const { completedDay } = req.body;
+    const userId = req.user.userId;
+    const { planId } = req.params;
+
+    console.log('Progress update request:', {
+      completedDay,
+      userId,
+      planId
+    });
+
+    // Validate completedDay
+    if (!completedDay || typeof completedDay !== 'number') {
+      return res.status(400).json({ 
+        message: 'Invalid completedDay value'
+      });
+    }
+
+    // Lấy thông tin plan để tính toán
+    const plan = await Plan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    let progress = await UserProgress.findOne({ userId, planId });
+    console.log('Current progress:', progress);
+
+    // Kiểm tra xem ngày này đã hoàn thành chưa
+    const isAlreadyCompleted = progress.completedWorkouts.some(
+      workout => workout.dayNumber === completedDay
+    );
+
+    if (isAlreadyCompleted) {
+      return res.status(400).json({ 
+        message: 'This day is already completed'
+      });
+    }
+
+    // Kiểm tra xem có thể tập ngày hôm nay không
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    
+    if (progress.lastUnlockTime) {
+      const lastWorkoutTime = new Date(progress.lastUnlockTime);
+      const now = new Date();
+      
+      // So sánh ngày tháng năm thay vì chỉ so sánh ngày
+      const isSameDay = 
+        lastWorkoutTime.getDate() === now.getDate() &&
+        lastWorkoutTime.getMonth() === now.getMonth() &&
+        lastWorkoutTime.getFullYear() === now.getFullYear();
+      
+      console.log('Time check:', {
+        lastWorkoutTime,
+        now,
+        isSameDay
+      });
+      
+      if (isSameDay) {
+        return res.status(400).json({ 
+          message: 'You can only complete one workout per day'
+        });
+      }
+    }
+
+    // Thêm workout đã hoàn thành
+    progress.completedWorkouts.push({
+      weekNumber: Math.ceil(completedDay / plan.duration.daysPerWeek),
+      dayNumber: completedDay,
+      completedDate: new Date()
+    });
+
+    // Cập nhật currentDay và lastUnlockTime
+    progress.currentDay = completedDay + 1;
+    progress.lastUnlockTime = new Date();
+
+    await progress.save();
+
+    // Kiểm tra xem đã hoàn thành plan chưa
+    const isCompleted = progress.completedWorkouts.length >= 
+      (plan.duration.weeks * plan.duration.daysPerWeek);
+
+    res.json({
+      message: 'Progress updated successfully',
+      progress: {
+        completedWorkouts: progress.completedWorkouts,
+        currentDay: progress.currentDay,
+        lastUnlockTime: progress.lastUnlockTime,
+        isCompleted
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating progress:', error);
+    res.status(500).json({ message: 'Error updating progress' });
+  }
+});
+
+// Lấy danh sách tất cả plan đang theo dõi của user
+app.get('/my-plans', auth, async (req, res) => {
+  try {
+    const userProgresses = await UserProgress.find({ userId: req.user.userId })
+      .populate('planId')
+      .sort({ startDate: -1 });
+
+    const plans = userProgresses.map(progress => ({
+      plan: progress.planId,
+      progress: {
+        currentDay: progress.currentDay,
+        completedWorkouts: progress.completedWorkouts,
+        startDate: progress.startDate,
+        lastUnlockTime: progress.lastUnlockTime
+      }
+    }));
+
+    res.json(plans);
+  } catch (error) {
+    console.error('Error getting user plans:', error);
+    res.status(500).json({ message: 'Error getting user plans' });
+  }
+});
+
+// Bắt đầu theo dõi một plan
+app.post('/plans/:planId/start', auth, async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const userId = req.user.userId;
+
+    // Kiểm tra plan có tồn tại không
+    const plan = await Plan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    // Kiểm tra xem đã có progress chưa
+    let progress = await UserProgress.findOne({ userId, planId });
+    
+    if (progress) {
+      return res.status(400).json({ 
+        message: 'Already started this plan',
+        progress 
+      });
+    }
+
+    // Tạo progress mới - không set lastUnlockTime
+    progress = new UserProgress({
+      userId,
+      planId,
+      completedWorkouts: [],
+      currentDay: 1,
+      lastUnlockTime: null  // Thay đổi từ new Date() thành null
+    });
+
+    await progress.save();
+    res.status(201).json(progress);
+  } catch (error) {
+    console.error('Error starting plan:', error);
+    res.status(500).json({ message: 'Error starting plan' });
+  }
+});
+
+// Lấy tiến trình của plan
+app.get('/plans/:planId/progress', auth, async (req, res) => {
+  try {
+    const progress = await UserProgress.findOne({
+      userId: req.user.userId,
+      planId: req.params.planId
+    });
+
+    if (!progress) {
+      return res.status(404).json({ message: 'Progress not found' });
+    }
+
+    res.json(progress);
+  } catch (error) {
+    console.error('Error getting progress:', error);
+    res.status(500).json({ message: 'Error getting progress' });
+  }
+});
+
+// Cập nhật tiến trình
+app.post('/plans/:planId/progress', auth, async (req, res) => {
+  try {
+    const { completedDay } = req.body;
+    const userId = req.user.userId;
+    const { planId } = req.params;
+
+    console.log('Progress update request:', {
+      completedDay,
+      userId,
+      planId
+    });
+
+    // Validate completedDay
+    if (!completedDay || typeof completedDay !== 'number') {
+      return res.status(400).json({ 
+        message: 'Invalid completedDay value'
+      });
+    }
+
+    // Lấy thông tin plan để tính toán
+    const plan = await Plan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({ message: 'Plan not found' });
+    }
+
+    let progress = await UserProgress.findOne({ userId, planId });
+    console.log('Current progress:', progress);
+
+    // Kiểm tra xem ngày này đã hoàn thành chưa
+    const isAlreadyCompleted = progress.completedWorkouts.some(
+      workout => workout.dayNumber === completedDay
+    );
+
+    if (isAlreadyCompleted) {
+      return res.status(400).json({ 
+        message: 'This day is already completed'
+      });
+    }
+
+    // Kiểm tra xem có thể tập ngày hôm nay không
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    
+    if (progress.lastUnlockTime) {
+      const lastWorkoutTime = new Date(progress.lastUnlockTime);
+      const now = new Date();
+      
+      // So sánh ngày tháng năm thay vì chỉ so sánh ngày
+      const isSameDay = 
+        lastWorkoutTime.getDate() === now.getDate() &&
+        lastWorkoutTime.getMonth() === now.getMonth() &&
+        lastWorkoutTime.getFullYear() === now.getFullYear();
+      
+      console.log('Time check:', {
+        lastWorkoutTime,
+        now,
+        isSameDay
+      });
+      
+      if (isSameDay) {
+        return res.status(400).json({ 
+          message: 'You can only complete one workout per day'
+        });
+      }
+    }
+
+    // Thêm workout đã hoàn thành
+    progress.completedWorkouts.push({
+      weekNumber: Math.ceil(completedDay / plan.duration.daysPerWeek),
+      dayNumber: completedDay,
+      completedDate: new Date()
+    });
+
+    // Cập nhật currentDay và lastUnlockTime
+    progress.currentDay = completedDay + 1;
+    progress.lastUnlockTime = new Date();
+
+    await progress.save();
+
+    // Kiểm tra xem đã hoàn thành plan chưa
+    const isCompleted = progress.completedWorkouts.length >= 
+      (plan.duration.weeks * plan.duration.daysPerWeek);
+
+    res.json({
+      message: 'Progress updated successfully',
+      progress: {
+        completedWorkouts: progress.completedWorkouts,
+        currentDay: progress.currentDay,
+        lastUnlockTime: progress.lastUnlockTime,
+        isCompleted
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating progress:', error);
+    res.status(500).json({ message: 'Error updating progress' });
+  }
+});
+
+// Reset lastUnlockTime
+app.post('/plans/:planId/reset-timer', auth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { planId } = req.params;
+
+    let progress = await UserProgress.findOne({ userId, planId });
+    if (!progress) {
+      return res.status(404).json({ message: 'Progress not found' });
+    }
+
+    progress.lastUnlockTime = null;
+    await progress.save();
+
+    res.json({
+      message: 'Timer reset successfully',
+      progress
+    });
+  } catch (error) {
+    console.error('Error resetting timer:', error);
+    res.status(500).json({ message: 'Error resetting timer' });
   }
 });
 
