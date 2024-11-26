@@ -1,16 +1,5 @@
 const mongoose = require('mongoose');
 
-const StudentProgressSchema = new mongoose.Schema({
-  studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  completedWorkouts: [{
-    weekNumber: Number,
-    dayNumber: Number,
-    completedDate: Date,
-    feedback: String
-  }],
-  lastAccessed: Date
-});
-
 const PTExerciseSchema = new mongoose.Schema({
   exerciseId: { type: mongoose.Schema.Types.ObjectId, ref: 'Exercise' },
   name: String,
@@ -37,6 +26,10 @@ const PTWeekSchema = new mongoose.Schema({
 const PTPlanSchema = new mongoose.Schema({
   ptId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   title: { type: String, required: true },
+  students: [{ 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User'
+  }],
   targetAudience: {
     experienceLevels: [{ type: String, enum: ['beginner', 'intermediate', 'advanced'] }],
     fitnessGoals: [{ type: String, enum: ['loseWeight', 'buildMuscle', 'keepFit'] }],
@@ -48,7 +41,6 @@ const PTPlanSchema = new mongoose.Schema({
     daysPerWeek: { type: Number, required: true },
   },
   weeks: [PTWeekSchema],
-  students: [StudentProgressSchema],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });
