@@ -100,16 +100,16 @@ exports.updateProgress = async (req, res) => {
         if (progress.lastUnlockTime) {
             const lastWorkoutTime = new Date(progress.lastUnlockTime);
             const today = new Date();
-            lastWorkoutTime.setHours(0, 0, 0, 0);
-            today.setHours(0, 0, 0, 0);
             
-            const lastCompletedWorkout = progress.completedWorkouts[progress.completedWorkouts.length - 1];
-            if (lastWorkoutTime.getTime() === today.getTime() && 
-                lastCompletedWorkout?.dayNumber === completedDay) {
+            // Set về 00:00 để so sánh ngày
+            const nextDay = new Date(lastWorkoutTime);
+            nextDay.setDate(nextDay.getDate() + 1);
+            nextDay.setHours(0, 0, 0, 0);
+            
+            if (today < nextDay) {
                 return res.status(400).json({ 
-                    message: 'You can only complete one workout per day',
-                    lastWorkoutTime,
-                    today
+                    message: 'Please wait until tomorrow to start your next workout',
+                    nextWorkoutTime: nextDay
                 });
             }
         }
