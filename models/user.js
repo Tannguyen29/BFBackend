@@ -6,8 +6,17 @@ const userSchema = new mongoose.Schema({
   password: String,
   role: { 
     type: String, 
-    enum: ['free', 'premium', 'admin'], 
+    enum: ['free', 'premium', 'PT', 'admin'], 
     default: 'free' 
+  },
+  ptId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  hasUnreadNotification: {
+    type: Boolean,
+    default: false
   },
   otp: String,
   otpExpires: Date,
@@ -30,6 +39,10 @@ const userSchema = new mongoose.Schema({
   premiumExpireDate: {
     type: Date,
     default: null
+  },
+  assignedPT: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
   }
 });
 

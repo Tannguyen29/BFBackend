@@ -5,10 +5,23 @@ const PTProgress = require('../models/ptProgress');
 // Get pro users
 exports.getProUsers = async (req, res) => {
   try {
-    const proUsers = await User.find({ role: 'premium' });
+    // Lấy những user premium có ptId là id của PT hiện tại
+    const proUsers = await User.find({ 
+      role: 'premium',
+      ptId: req.user.userId
+    }).select('name email personalInfo'); // Thêm các trường cần thiết
+
+    if (!proUsers.length) {
+      return res.json([]);
+    }
+
     res.json(proUsers);
   } catch (error) {
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching pro users:', error);
+    res.status(500).json({ 
+      message: 'Error fetching premium users',
+      error: error.message 
+    });
   }
 };
 
@@ -196,4 +209,23 @@ const validatePlanData = (title, targetAudience, duration, students, exercises) 
   if (!students?.length) return false;
   if (!exercises?.length) return false;
   return true;
+};
+
+// Sửa lại controller getStudentDetails
+exports.getStudentDetails = async (req, res) => {
+    try {
+        const student = await User.findOne({
+            _id: req.params.studentId,
+            ptId: req.user.userId
+        }).select('name email personalInfo');
+            
+        if (!student) {
+            return res.status(404).json({ message: 'Student not found' });
+        }
+
+        res.json(student);
+    } catch (error) {
+        console.error('Error getting student details:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
 }; 

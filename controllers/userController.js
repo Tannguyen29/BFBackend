@@ -57,17 +57,15 @@ exports.getUserInfo = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    console.log('Sending user info:', {
-      userId: user._id,
-      role: user.role,
-      premiumExpireDate: user.premiumExpireDate
-    });
+    console.log('Full user object:', user);
+    console.log('PT ID in getUserInfo:', user.ptId);
 
     res.json({
       _id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
+      ptId: user.ptId,
       personalInfo: user.personalInfo,
       personalInfoCompleted: user.personalInfoCompleted,
       avatarUrl: user.avatarUrl,
@@ -181,5 +179,22 @@ exports.getPTStudents = async (req, res) => {
     } catch (error) {
         console.error('Error fetching PT students:', error);
         res.status(500).json({ message: 'Server error' });
+    }
+};
+
+// Get user by ID
+exports.getUserById = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id)
+            .select('name email role'); // Chỉ lấy các trường cần thiết
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        res.json(user);
+    } catch (error) {
+        console.error('Error getting user by ID:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
 }; 

@@ -26,4 +26,7 @@ router.get('/students', auth, userController.getStudents);
 // Get PT's students
 router.get('/pt/students', auth, userController.getPTStudents);
 
+// Get user by ID
+router.get('/:id', auth, userController.getUserById);
+
 module.exports = router;

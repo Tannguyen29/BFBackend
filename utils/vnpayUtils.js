@@ -27,6 +27,9 @@ exports.createVnpayParams = (amount, duration, userId, ipAddr) => {
     const amountInVND = Math.round(amount);
     const orderInfo = `Premium Plan ${duration} Months_${userId}`;
 
+    // Hardcode ReturnUrl để đảm bảo đúng định dạng
+    const returnUrl = 'http://192.168.2.28:5000/vnpay_return';
+
     return {
         vnp_Version: '2.1.0',
         vnp_Command: 'pay',
@@ -37,7 +40,7 @@ exports.createVnpayParams = (amount, duration, userId, ipAddr) => {
         vnp_OrderInfo: orderInfo,
         vnp_OrderType: 'other',
         vnp_Amount: amountInVND * 100,
-        vnp_ReturnUrl: process.env.API_BASE_URL,
+        vnp_ReturnUrl: returnUrl,  // Sử dụng URL đã được định nghĩa
         vnp_IpAddr: ipAddr,
         vnp_CreateDate: createDate
     };

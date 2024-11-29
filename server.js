@@ -16,7 +16,7 @@ const bannerRoutes = require('./routes/banners');
 const paymentRoutes = require('./routes/payment');
 const planProgressRoutes = require('./routes/planProgress');
 const ptPlanProgressRoutes = require('./routes/ptPlanProgress');
-
+const notificationRoutes = require('./routes/notifications');
 // Initialize app
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -40,7 +40,7 @@ app.use('/pt-plans', ptPlanRoutes);
 app.use('/student-pt-plans', studentPtPlanRoutes);
 app.use('/pt-plan-progress', ptPlanProgressRoutes);
 app.use('/banners', bannerRoutes);
-
+app.use('/notifications', notificationRoutes);
 // Initialize scheduled tasks
 const initScheduledTasks = require('./utils/scheduledTasks');
 initScheduledTasks();
