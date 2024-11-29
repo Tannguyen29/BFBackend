@@ -1,4 +1,4 @@
-const Exercise = require(('../models/Exercise'));
+const Exercise = require(('../models/exercise'));
 const cloudinary = require('../config/cloudinary');
 
 // Create a new exercise
