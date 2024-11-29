@@ -18,4 +18,7 @@ router.get('/:planId', auth, ptPlanController.getPTPlanById);
 // Update PT plan
 router.put('/:planId', auth, ptPlanController.updatePTPlan);
 
+// Thêm route mới
+router.get('/student/:studentId', auth, ptPlanController.getStudentDetails);
+
 module.exports = router;
