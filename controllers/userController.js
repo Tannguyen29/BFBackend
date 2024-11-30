@@ -165,17 +165,17 @@ exports.getPTStudents = async (req, res) => {
             return res.status(403).json({ message: 'Only PTs can access their students list' });
         }
 
-        // Tìm tất cả schedule của PT này
-        const ptSchedules = await Schedule.find({ ptId: req.user.userId })
-            .populate('studentId', 'name email isPremium role')
-            .distinct('studentId');
+        // Tìm tất cả user có role là premium và có ptId trỏ đến PT hiện tại
+        const students = await User.find({
+            role: 'premium',
+            ptId: req.user.userId
+        }).select('name email ');
 
-        // Lọc ra các student là premium
-        const premiumStudents = ptSchedules.filter(student => 
-            student.isPremium && student.role === 'student'
-        );
+        if (!students) {
+            return res.json([]);
+        }
 
-        res.json(premiumStudents);
+        res.json(students);
     } catch (error) {
         console.error('Error fetching PT students:', error);
         res.status(500).json({ message: 'Server error' });
@@ -197,4 +197,39 @@ exports.getUserById = async (req, res) => {
         console.error('Error getting user by ID:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
-}; 
+};
+
+exports.getPTStudentsWithSchedules = async (req, res) => {
+    try {
+        const pt = await User.findById(req.user.userId);
+        if (pt.role !== 'PT') {
+            return res.status(403).json({ message: 'Only PTs can access their students list' });
+        }
+
+        // Tìm students của PT
+        const students = await User.find({
+            role: 'premium',
+            ptId: req.user.userId
+        }).select('name email isPremium');
+
+        // Lấy thêm thông tin schedule cho mỗi student
+        const studentsWithSchedules = await Promise.all(
+            students.map(async (student) => {
+                const schedules = await Schedule.find({
+                    ptId: req.user.userId,
+                    studentId: student._id
+                }).select('date startTime endTime');
+
+                return {
+                    ...student.toObject(),
+                    schedules
+                };
+            })
+        );
+
+        res.json(studentsWithSchedules);
+    } catch (error) {
+        console.error('Error fetching PT students with schedules:', error);
+        res.status(500).json({ message: 'Server error' });
+    }
+};

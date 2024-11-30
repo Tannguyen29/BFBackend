@@ -1,23 +1,21 @@
 const corsOptions = {
   origin: [
-    '*',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
     'http://192.168.2.28:3000',
-    'http://192.168.2.28:5000',
-    'https://bfbackend-mdhk.onrender.com',
-    // Thêm domain của frontend nếu có
+    'http://192.168.2.28:5173',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: [
     'Content-Type', 
-    'x-auth-token', 
     'Authorization',
-    'Access-Control-Allow-Origin',
-    'Access-Control-Allow-Headers',
-    'Access-Control-Allow-Methods'
+    'x-auth-token'
   ],
   credentials: true,
-  optionsSuccessStatus: 200,
-  preflightContinue: false
+  optionsSuccessStatus: 200
 };
 
 module.exports = corsOptions; 
