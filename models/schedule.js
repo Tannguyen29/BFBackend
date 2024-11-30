@@ -6,12 +6,6 @@ const scheduleSchema = new mongoose.Schema({
   date: { type: Date, required: true },
   startTime: { type: String, required: true },
   endTime: { type: String, required: true },
-  status: { 
-    type: String, 
-    enum: ['pending', 'accepted', 'rejected'], 
-    default: 'pending' 
-  },
-  notificationSent: { type: Boolean, default: false }
 }, { timestamps: true });
 
 const Schedule = mongoose.model('Schedule', scheduleSchema);
